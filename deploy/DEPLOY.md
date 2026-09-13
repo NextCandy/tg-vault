@@ -123,24 +123,6 @@ curl -fsS http://127.0.0.1:47832/ | grep -oE 'assets/[^\"]+\.(js|css)' | sort
 
 两个容器的 revision/version 应与预期一致，镜像内外的 `assets/` 入口也应相同。另用实际 Web/API HTTPS 地址检查公网访问。
 
-### 安装器回归测试
-
-```bash
-bash deploy/install.test.sh all
-python3 deploy/install-configuration.test.py --compose
-python3 deploy/install-lifecycle.test.py
-python3 deploy/install-source.test.py
-python3 deploy/install-compose.test.py
-```
-
-以上测试使用临时配置、模拟命令或只读 Compose 检查，不启动应用容器。下面的真实容器测试需主动运行，并传入本机已有的应用镜像。它创建独立内部网络和数据卷，不发布端口、不启用 Telegram、不挂载当前部署数据，结束后清理测试资源：
-
-```bash
-python3 deploy/install-runtime.test.py --backend-image <已有后端镜像> --frontend-image <已有前端镜像>
-# 可选：--compat、--compose-bin /path/to/docker-compose、--bash-bin /path/to/bash
-# --build-from-source 会顺序构建当前源码，产生隔离镜像并在结束时移除。
-```
-
 不要使用 `down -v` 排查安装故障。出现 `ENOTFOUND postgres` 或 `EAI_AGAIN` 时，先用 `docker compose ps --all` 检查数据库服务是否存在并已启动，不要先改 DNS 或删数据。
 
 ## 6. 常用运维命令

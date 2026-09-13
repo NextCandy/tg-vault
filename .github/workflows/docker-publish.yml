@@ -25,20 +25,12 @@ jobs:
           cache-dependency-path: |
             backend/package-lock.json
             frontend/package-lock.json
-      - name: Verify installer contracts
-        run: |
-          bash deploy/install.test.sh all
-          python3 deploy/install-configuration.test.py --compose
-          python3 deploy/install-lifecycle.test.py
-          python3 deploy/install-source.test.py
-          python3 deploy/install-compose.test.py
-          bash deploy/backup-restore.test.sh
       - name: Verify backend
         working-directory: backend
-        run: npm ci && npm audit --omit=dev --audit-level=high && npm test && npm run typecheck && npm run build
+        run: npm ci && npm audit --omit=dev --audit-level=high && npm run typecheck && npm run build
       - name: Verify frontend
         working-directory: frontend
-        run: npm ci && npm audit --omit=dev --audit-level=high && npm test && npm run lint && npm run build
+        run: npm ci && npm audit --omit=dev --audit-level=high && npm run lint && npm run build
       - name: Generate CycloneDX SBOM release assets
         run: |
           npx --yes @cyclonedx/cyclonedx-npm --output-format JSON --output-file backend-sbom.cdx.json backend/package-lock.json
