@@ -27796,8 +27796,6 @@ var package_default = {
   type: "module",
   scripts: {
     dev: "tsx watch src/index.ts",
-    test: "tsx --test src/**/*.test.ts",
-    "test:queue": "tsx --test src/services/downloadTaskQueue.test.ts",
     typecheck: "tsc --noEmit --pretty false",
     build: "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --packages=external && esbuild src/scripts/login_telegram_user.ts --bundle --platform=node --format=esm --outfile=dist/scripts/login_telegram_user.js --packages=external && node scripts/sync_dist_schema.mjs && node scripts/sync_dist_schema.mjs --check",
     start: "node dist/index.js",
