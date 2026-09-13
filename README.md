@@ -1,10 +1,12 @@
+> 本地保存位置：新安装可选服务器目录；升级保留原挂载、不迁移。详见 [本地存储位置](docs/local-storage.md)。
+
 <div align="center">
   <img src="backend/logo.png" alt="TG Vault Logo" width="150" />
 
   <h1>TG Vault</h1>
 
   <p>
-    <strong>把 Telegram 变成你的自动化私有云入口</strong>
+    <strong>Telegram 文件转存与归档</strong>
   </p>
   <p>
     面向个人与小团队的 Telegram 转存、媒体归档和多存储源文件管理系统。
@@ -35,8 +37,7 @@
   </p>
 </div>
 
-> [!TIP]
-> **一条链路完成收集、转存、归档与管理：** 从 Telegram 私聊、频道/群组或视频链接接收内容，自动写入本地磁盘、OneDrive、Google Drive、OSS、S3 或 WebDAV，再通过 Web 控制台统一管理。
+从 Telegram 私聊、频道或群组保存文件，在 Web 中浏览和管理。支持本地磁盘、OneDrive、Google Drive、OSS、S3 和 WebDAV。
 
 ---
 
@@ -44,7 +45,7 @@
 
 - **Web 管理** — 文件上传、分片大文件上传、文件夹、预览、删除和存储源管理
 - **多存储源** — 本地、OneDrive、Google Drive、阿里云 OSS、S3 兼容存储和 WebDAV
-- **账号级下载器** — 频道/群组按日期或标签批量抓取、订阅同步和更稳定的大文件下载
+- **账号级下载器** — 频道/群组按日期或标签批量抓取、订阅同步和大文件下载
 - **自动归档** — 默认按来源、频道和文件类型保存，例如 `telegram/channel/images/file.jpg`
 - **安全防护** — 首次初始化管理员、HttpOnly Cookie、Origin 校验、签名 URL 和 TOTP 双重验证
 
@@ -52,6 +53,10 @@
 ---
 
 ## 🚀 快速部署 (Docker Compose)
+
+需要 Linux、Bash 4+、Python 3.6+、Git、Docker Engine、Compose 插件和 Buildx，以及已解析到服务器的 Web/API 域名。HTTPS 由宿主机反向代理提供，不包含在 Compose 中。
+
+默认构建包含 SBOM/provenance，需要 Compose 2.39+ 和支持构建证明的 builder/镜像存储。较旧环境可主动选择 `--compat`（验证基线为 Compose 2.18+），代价是本次构建不生成这些证明；不改变应用和数据库配置。安装器按实际能力检查，不支持 `docker-compose` v1。详见[部署指南](deploy/DEPLOY.md)。
 
 ### 1. 克隆仓库
 
@@ -66,16 +71,16 @@ cd tg-vault
 ./deploy/install.sh
 ```
 
-就这一条命令。安装向导会先检测 Docker Engine、Docker Compose 插件、Python 3 和 Git；缺少组件时，由你选择自动补全、查看手动提示或退出。首次安装只需要输入 Web 前端 URL 和后端 API URL，确认后脚本会生成 `.env`、数据库密码和应用密钥，并构建启动服务。
+安装器先检查源码更新和运行环境。缺少组件时，可选择从现有仓库安装、查看手动安装提示或退出；只有输入 `1` 才会安装软件，按 Enter 不授权安装。首次部署填写 Web 和 API 的 HTTPS 地址，确认后生成 `.env`、数据库密码和应用密钥，再构建并启动服务。
 
-以后升级也只需要进入项目目录，再执行同一条 `./deploy/install.sh`。脚本会自动从 GitHub 拉取当前分支的最新代码，检测到本地有修改或更新无法快进时会停止，不会强行覆盖；已有地址直接按 Enter 保留即可。升级只重建 `backend` 和 `frontend`，不会重建 PostgreSQL 或删除持久化数据。
+安装器先等待 PostgreSQL 健康，再启动前后端；升级时保留数据库容器和持久卷。后续使用同一命令更新，详情见[维护与更新](#-维护与更新)。
 
-- **基础 Web 部署**
-  只需输入 Web 前端 URL 与后端 API URL；地址必须是完整的 `http(s)` origin。
+- **配置 HTTPS**
+  将 Web 域名代理到 `127.0.0.1:47832`，API 域名代理到 `127.0.0.1:51947`，为两个入口配置证书后再初始化管理员。
 - **启用 Telegram Bot 基础能力**
   首次打开 Web 并完成管理员初始化后，进入 **设置 → Telegram → Telegram Bot 连接**，填写 Bot Token、API ID、API Hash 和 Bot PIN。凭证会加密保存且不回显；不要把这些内容写入 `.env`。
 - **启用账号级 Telegram 下载器**
-  只有需要频道/群组批量抓取、订阅同步或更稳定的大文件下载时，才在 **设置 → Telegram → Telegram 账号下载器** 中登录。session 加密保存在服务端。
+  需要频道/群组批量抓取、订阅同步或大文件下载时，再在 **设置 → Telegram → Telegram 账号下载器** 中登录。session 加密保存在服务端。
 
 > [!IMPORTANT]
 > `VITE_API_URL` 会打包进前端静态文件。修改该地址后必须重新运行 `deploy/install.sh`；仅重启容器不会更新 API 地址。
@@ -84,15 +89,15 @@ cd tg-vault
 
 ## 🛠️ 环境变量配置
 
-> 下面仅列出部署时最常用的变量。点击各分组展开详情；完整模板以 [`.env.example`](.env.example) 为准。
+常用变量如下，完整模板见 [`.env.example`](.env.example)。
 
 <details open>
 <summary><strong>新手只需填写（2 项）</strong></summary>
 
-- **`VITE_API_URL`** — 前端访问后端的公网地址；示例：`https://api.yourdomain.com`
-- **`CORS_ORIGIN`** — 允许跨域的前端来源；示例：`https://cloud.yourdomain.com`
+- **`VITE_API_URL`** — 前端访问后端的公网地址；示例：`https://api.example.com`
+- **`CORS_ORIGIN`** — 允许跨域的前端来源；示例：`https://cloud.example.com`
 
-> 两项都必须是完整的 `http(s)` origin，不要带路径、查询参数或末尾 `/`。安装向导会直接询问并校验这两个地址，无需手动编辑 `.env` 或重复运行脚本。
+两项填写完整 origin（协议、域名及可选端口），不带路径、查询参数或末尾 `/`；生产环境使用 HTTPS。安装器会询问并校验地址，无需预先复制模板。若已复制 `.env.example`，必须将示例地址换成实际域名；按 Enter 会保留已有值。
 
 </details>
 
@@ -115,7 +120,7 @@ cd tg-vault
 </details>
 
 <details>
-<summary><strong>Telegram 配置原则</strong></summary>
+<summary><strong>Telegram 运行配置</strong></summary>
 
 Telegram 凭证、允许用户、账号登录、来源白名单和下载并发均属于运行配置，统一在 Web **设置 → Telegram** 中管理。新部署不需要在 `.env` 中填写 Telegram 变量，也不需要手动生成 session 文件。
 
@@ -124,7 +129,7 @@ Telegram 凭证、允许用户、账号登录、来源白名单和下载并发�
 </details>
 
 <details>
-<summary><strong>常用可选项（9 项）</strong></summary>
+<summary><strong>常用可选项</strong></summary>
 
 - **`PORT`** `51947` — 后端监听端口
 - **`UPLOAD_DIR`** `/data/uploads` · **`THUMBNAIL_DIR`** `/data/thumbnails` · **`CHUNK_DIR`** `/data/chunks`
@@ -134,7 +139,7 @@ Telegram 凭证、允许用户、账号登录、来源白名单和下载并发�
 </details>
 
 <details>
-<summary><strong>限流与安全项（10 项）</strong></summary>
+<summary><strong>限流与安全项</strong></summary>
 
 - **普通消息限流** — `TELEGRAM_RATE_WINDOW_MS=60000`，`TELEGRAM_RATE_MAX=30`
 - **重型命令限流** — `TELEGRAM_HEAVY_RATE_WINDOW_MS=600000`，`TELEGRAM_HEAVY_RATE_MAX=5`
@@ -160,7 +165,7 @@ Telegram 凭证、允许用户、账号登录、来源白名单和下载并发�
 
 - ✅ 频道/群组按日期或标签批量抓取
 - ✅ 频道订阅自动同步
-- ✅ 更稳定地下载超过 Bot 限制的大文件
+- ✅ 下载受 Bot 限制影响的大文件（仍受 Telegram 账号权限和限流约束）
 
 ### 获取 Bot Token
 
@@ -185,16 +190,18 @@ TG Vault 会限制能通过 Bot PIN 登录的 Telegram 用户。推荐进入 **�
 
 ### 账号级下载器什么时候需要？
 
-账号级下载器会用你登录的 Telegram 用户账号读取媒体。只有下面这些场景建议启用：
+账号级下载器使用登录的 Telegram 用户账号读取媒体，适用于：
 
 - 频道/群组转存：用户账号需要加入对应频道/群组，并确保能看到历史媒体。
 - 按日期/标签批量抓取：`/tg_download date`、`/tg_download tag` 依赖用户账号访问来源消息。
 - 频道订阅同步：`/tg_sub` 后台扫描依赖用户账号读取频道/群组新消息。
-- 大文件下载：Bot 直接下载受 Telegram Bot 限制影响，账号级下载器通常更稳定。
+- 大文件下载：Bot 无法直接下载的文件，可尝试通过有访问权限的用户账号下载。
+
+仅登录或明确启用账号时才应连接个人账号；更改界面语言或查看设置不应激活账号。只转存有权访问和保存的内容，遵守 Telegram 限流；遇到冷却或账号限制时，不要反复重试或提高并发。
 
 ### Telegram 下载设置
 
-下载并发等参数不属于首次部署配置。需要调整时，在 Web **设置 → 维护 → 高级任务设置** 中修改；页面会显示当前值、适用范围和高风险确认，不建议新手编辑 `.env` 或凭经验修改并发数。
+下载并发在 Web **设置 → 维护 → 高级任务设置** 中调整。先查看适用范围和风险提示，保留默认值，确有需要时再修改；不要通过提高并发绕过账号冷却。
 
 ---
 
@@ -250,7 +257,7 @@ TG Vault 会限制能通过 Bot PIN 登录的 Telegram 用户。推荐进入 **�
 
 TG Vault 默认采用“首次初始化”模式保护 Web 和 API：
 
-1. 服务启动后，首次访问 Web 页面始终创建至少 8 位的网页管理员密码，并使用 `scrypt` 加盐哈希保存到数据库。
+1. 服务启动后，首次访问 Web 页面需创建至少 8 位的管理员密码，使用 `scrypt` 加盐哈希保存到数据库。请在开放给其他用户前完成初始化。
 2. 如果此时已经通过环境变量配置 Telegram Bot，初始化页还会要求创建 Bot 4 位 PIN；新安装也可以先完成网页初始化，再到 **设置 → Telegram** 配置 Bot 和 PIN。
 3. 登录成功后，浏览器会获得 HttpOnly Cookie 会话，前端不再把访问 token 写入 `localStorage`。
 4. 修改类请求会校验 `Origin`，请确保 `.env` 中的 `CORS_ORIGIN` 与前端公网地址一致。
@@ -261,7 +268,7 @@ TG Vault 默认采用“首次初始化”模式保护 Web 和 API：
 
 ### 自动密钥说明
 
-TG Vault 会在首次启动时自动生成内部密钥，并保存到 Docker 数据卷的 `/data/secrets/` 目录中。正常部署无需手动配置。迁移服务器时请连同 Docker volume 一起备份，否则登录会话、TOTP 密钥和已加密的第三方存储凭证可能需要重新配置。
+安装器为新部署生成 `.env` 密钥；未显式配置的内部密钥由应用保存到数据卷的 `/data/secrets/`。迁移时同时备份 `.env`、数据库和完整数据卷。丢失密钥可能导致登录会话失效，TOTP 和第三方存储凭证无法解密。
 
 完整的宿主机 Nginx 部署、健康检查、协调备份与隔离恢复校验流程见 [`deploy/DEPLOY.md`](deploy/DEPLOY.md)。仓库提供 `deploy/backup.sh` 和只读归档检查脚本 `deploy/restore-verify.sh`；备份包含密钥材料，必须加密并异地保存。
 
@@ -301,25 +308,17 @@ COOKIE_SECURE=true
 
 ## 🔄 维护与更新
 
-进入项目目录（包含 `docker-compose.yml` 的目录），执行下面命令即可：
+升级前先备份 `.env`、数据库和文件卷，并安排短暂的服务中断。然后从项目目录运行：
 
 ```bash
 ./deploy/install.sh
 ```
 
-说明：
+- 自动拉取当前分支的最新代码；遇到本地修改、detached HEAD 或无法快进的更新会停止，不强制覆盖文件。
+- 已有地址按 Enter 保留，输入 `e` 返回编辑。已手动更新源码或需要离线部署时，主动添加 `--skip-source-update`。
+- 仅重建前后端；已有 PostgreSQL 容器使用 `--no-recreate` 保留，停止的数据库会恢复启动。健康检查通过后才报告完成。
 
-- **首次部署**：运行 `./deploy/install.sh`，按提示填写两个公网地址；不要先复制一堆 Telegram 配置。
-- **后续升级**：脚本自动检查并拉取当前 Git 分支的最新代码；已有地址会显示为当前值，按 Enter 保留即可。
-- **安全停止**：项目目录存在本地修改、当前不是 Git 分支，或 GitHub 更新无法快进时，脚本会停止并提示处理，不会强制覆盖你的文件。
-- 升级脚本只重建并替换 `backend`、`frontend`，不会重建 PostgreSQL；数据库、上传文件、内部密钥和 Web 中保存的 Telegram 配置位于持久化卷中。
-- 如果安装向导检测到地址变化，不要直接确认；输入 `e` 返回重新编辑，确认无误后再开始构建。
-
-清理无用 Docker 资源：
-
-```bash
-docker system prune -f
-```
+不要用 `docker compose down -v` 排查安装故障，它会永久删除持久化数据。清理 Docker 资源前先检查影响范围，并保留回滚所需的镜像。
 
 ---
 
@@ -341,28 +340,12 @@ TG Vault/
 
 基于 [MIT License](LICENSE) 开源。
 
+作者：[hicocos](https://github.com/hicocos) · 仓库：[hicocos/tg-vault](https://github.com/hicocos/tg-vault)
+
 ---
 
 ## 📊 项目数据
 
-<div align="center">
-  <a href="https://github.com/hicocos">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://github-stats-extended.vercel.app/api?username=hicocos&amp;show_icons=true&amp;include_all_commits=true&amp;rank_icon=github&amp;locale=cn&amp;theme=github_dark&amp;hide_border=true&amp;cache_seconds=21600" />
-      <img height="195" alt="hicocos 的 GitHub 统计" src="https://github-stats-extended.vercel.app/api?username=hicocos&amp;show_icons=true&amp;include_all_commits=true&amp;rank_icon=github&amp;locale=cn&amp;theme=default&amp;hide_border=true&amp;cache_seconds=21600" />
-    </picture>
-  </a>
-  <a href="https://github.com/hicocos/tg-vault">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://github-stats-extended.vercel.app/api/top-langs/?username=hicocos&amp;layout=compact&amp;langs_count=8&amp;theme=github_dark&amp;hide_border=true&amp;cache_seconds=21600" />
-      <img height="195" alt="hicocos 的常用语言" src="https://github-stats-extended.vercel.app/api/top-langs/?username=hicocos&amp;layout=compact&amp;langs_count=8&amp;theme=default&amp;hide_border=true&amp;cache_seconds=21600" />
-    </picture>
-  </a>
-</div>
-
-<p align="center">
-  <sub>统计卡片由 <a href="https://github.com/stats-organization/github-stats-extended">GitHub Stats Extended</a> 动态生成，并随 GitHub 明暗主题自动切换。</sub>
-</p>
 
 <div align="center">
   <a href="https://www.star-history.com/#hicocos/tg-vault&amp;type=date&amp;legend=top-left">

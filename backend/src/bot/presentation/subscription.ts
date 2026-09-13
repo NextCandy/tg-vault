@@ -17,6 +17,23 @@ export interface SubscriptionPresentationRow {
     disabled_reason?: string | null;
 }
 
+export function buildSubscriptionResultSummary(result: SubscriptionPresentationRow['last_result'], locale: TelegramLocale = DEFAULT_LOCALE): string {
+    if (!result) return t(locale, 'bot.callback.noResult');
+    const statuses: Record<string, string> = {
+        success: t(locale, 'common.success'),
+        completed: t(locale, 'bot.subscription.result.completed'),
+        failed: t(locale, 'common.failed'),
+        partial: t(locale, 'bot.subscription.result.partial'),
+        running: t(locale, 'bot.subscription.result.running'),
+        paused: t(locale, 'bot.subscription.result.paused'),
+    };
+    const count = (value?: number) => Number.isFinite(value) && value! >= 0 ? Math.floor(value!) : 0;
+    return t(locale, 'bot.subscription.lastResult', {
+        status: statuses[result.status || ''] || t(locale, 'bot.subscription.result.recorded'),
+        found: count(result.found), failed: count(result.failed),
+    });
+}
+
 export function buildSubscriptionDisplayLines(row: SubscriptionPresentationRow, index: number, locale: TelegramLocale = DEFAULT_LOCALE): string {
     const status = row.enabled ? '✅' : '⏸️';
     const source = row.source_original && row.source_original !== row.source
@@ -26,9 +43,6 @@ export function buildSubscriptionDisplayLines(row: SubscriptionPresentationRow, 
     const target = row.target_mode === 'fixed'
         ? `${row.target_account_name || row.target_provider || t(locale, 'commands.targetDefault')}`
         : t(locale, 'bot.subscription.followSystemDefault');
-    const resultStatus: Record<string, string> = {
-        success: t(locale, 'common.success'), completed: t(locale, 'bot.subscription.result.completed'), failed: t(locale, 'common.failed'), partial: t(locale, 'bot.subscription.result.partial'), running: t(locale, 'bot.subscription.result.running'), paused: t(locale, 'bot.subscription.result.paused'),
-    };
     return [
         `${index + 1}. ${status} ${row.title || row.source_original || row.source}`,
         t(locale, 'bot.subscription.source', { source }),
@@ -37,7 +51,7 @@ export function buildSubscriptionDisplayLines(row: SubscriptionPresentationRow, 
         t(locale, 'bot.subscription.target', { target }),
         row.last_scan_at ? t(locale, 'bot.subscription.lastScan', { time: formatDate(row.last_scan_at, locale) }) : t(locale, 'bot.subscription.notScanned'),
         row.next_scan_at ? t(locale, 'bot.subscription.nextScan', { time: formatDate(row.next_scan_at, locale) }) : null,
-        row.last_result ? t(locale, 'bot.subscription.lastResult', { status: resultStatus[row.last_result.status || ''] || t(locale, 'bot.subscription.result.recorded'), found: row.last_result.found !== undefined ? row.last_result.found : 0, failed: row.last_result.failed || 0 }) : null,
+        row.last_result ? buildSubscriptionResultSummary(row.last_result, locale) : null,
         row.last_error ? t(locale, 'bot.subscription.error', { error: row.last_error }) : null,
         !row.enabled && row.disabled_reason ? t(locale, 'bot.subscription.disabledReason', { reason: row.disabled_reason }) : null,
     ].filter(Boolean).join('\n');

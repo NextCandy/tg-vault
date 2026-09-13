@@ -1,155 +1,45 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
+if (( BASH_VERSINFO[0] < 4 )); then
+  printf '需要 Bash 4 或更新版本，请不要使用 sh 运行。\n' >&2
+  exit 2
+fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
 NON_INTERACTIVE=false
 AFTER_SOURCE_UPDATE=false
-case "${1:-}" in
-  "") ;;
+SKIP_SOURCE_UPDATE=false
+INSTALL_REQUIRE_ATTESTATIONS="${INSTALL_REQUIRE_ATTESTATIONS:-true}"
+for argument in "$@"; do
+case "$argument" in
   --non-interactive) NON_INTERACTIVE=true ;;
   --after-source-update) AFTER_SOURCE_UPDATE=true ;;
+  --skip-source-update) SKIP_SOURCE_UPDATE=true ;;
+  --compat) INSTALL_REQUIRE_ATTESTATIONS=false ;;
   -h|--help)
     cat <<'EOF'
-用法：./deploy/install.sh [--non-interactive]
+用法：./deploy/install.sh [--non-interactive] [--skip-source-update] [--compat]
 
-默认会自动检查 GitHub 更新，再检测服务器环境；缺少组件时由用户选择自动补全、查看提示或退出，随后只询问 Web 前端 URL 和后端 API URL。
-首次部署会创建 `.env` 并生成密钥；已有部署会显示当前地址，按 Enter 保留即可。
---non-interactive  不等待输入；从现有 .env 或同名环境变量读取地址，缺少配置时退出。
+检查源码更新和服务器环境，再填写 Web/API 地址。仅输入 1 才授权安装缺少的软件。
+首次部署创建 .env 并生成密钥；已有地址按 Enter 保留。生产环境需配置 HTTPS。
+--non-interactive  不读取输入或安装软件；从 .env 或环境变量取值，配置不足时退出。
+--skip-source-update  使用当前源码，不拉取 Git 更新。
+--compat  本次构建不生成 SBOM/provenance，适用于较旧 Compose/镜像存储；不改原配置。
 EOF
     exit 0
     ;;
   *)
-    echo "未知参数：$1；使用 --help 查看用法。" >&2
+    echo "未知参数：$argument；使用 --help 查看用法。" >&2
     exit 2
     ;;
 esac
+done
 
 if [[ "$NON_INTERACTIVE" == false && ! -t 0 ]]; then
   echo "当前没有交互式终端；请在终端中运行，或使用 --non-interactive。" >&2
   exit 2
 fi
-
-detect_package_manager() {
-  if command -v apt-get >/dev/null 2>&1; then
-    printf 'apt'
-  elif command -v dnf >/dev/null 2>&1; then
-    printf 'dnf'
-  elif command -v yum >/dev/null 2>&1; then
-    printf 'yum'
-  else
-    printf 'unsupported'
-  fi
-}
-
-run_privileged() {
-  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    "$@"
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo "$@"
-  else
-    echo "需要管理员权限，但当前不是 root 且未找到 sudo。" >&2
-    return 1
-  fi
-}
-
-install_missing_packages() {
-  local manager="$1"
-  shift
-  case "$manager" in
-    apt)
-      run_privileged apt-get update
-      run_privileged apt-get install -y "$@"
-      ;;
-    dnf) run_privileged dnf install -y "$@" ;;
-    yum) run_privileged yum install -y "$@" ;;
-    *) return 1 ;;
-  esac
-}
-
-check_environment() {
-  local missing=()
-  command -v docker >/dev/null 2>&1 || missing+=(docker)
-  if command -v docker >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then
-    missing+=(compose)
-  fi
-  command -v python3 >/dev/null 2>&1 || missing+=(python3)
-  command -v git >/dev/null 2>&1 || missing+=(git)
-
-  echo "服务器环境检测"
-  printf '  %-24s %s\n' "Docker Engine" "$([[ ! " ${missing[*]} " =~ " docker " ]] && echo '✓ 已安装' || echo '✗ 缺失')"
-  printf '  %-24s %s\n' "Docker Compose 插件" "$([[ ! " ${missing[*]} " =~ " compose " ]] && echo '✓ 已安装' || echo '✗ 缺失')"
-  printf '  %-24s %s\n' "Python 3" "$([[ ! " ${missing[*]} " =~ " python3 " ]] && echo '✓ 已安装' || echo '✗ 缺失')"
-  printf '  %-24s %s\n' "Git" "$([[ ! " ${missing[*]} " =~ " git " ]] && echo '✓ 已安装' || echo '✗ 缺失')"
-
-  if [[ ${#missing[@]} -eq 0 ]]; then
-    echo "环境检测通过。"
-    return 0
-  fi
-
-  echo
-  echo "缺少必需环境：${missing[*]}"
-  if [[ "$NON_INTERACTIVE" == true ]]; then
-    echo "非交互模式不会自动修改服务器环境；请先安装缺失项后重试。" >&2
-    exit 1
-  fi
-
-  local manager choice
-  manager="$(detect_package_manager)"
-  if [[ "$manager" == unsupported ]]; then
-    echo "未识别受支持的包管理器（apt/dnf/yum），请手动安装缺失项后重试。" >&2
-    exit 1
-  fi
-
-  echo "请选择处理方式："
-  echo "  1) 自动安装缺失环境（推荐）"
-  echo "  2) 显示手动处理提示并退出"
-  echo "  q) 退出"
-  while true; do
-    printf '> '
-    IFS= read -r choice
-    case "${choice,,}" in
-      1|"") break ;;
-      2)
-        echo "请安装 Docker Engine、Docker Compose 插件、Python 3 和 Git 中的缺失项后重新运行。"
-        exit 0
-        ;;
-      q) echo "已退出，未修改服务器环境。"; exit 0 ;;
-      *) echo "请输入 1、2 或 q。" >&2 ;;
-    esac
-  done
-
-  local packages=()
-  for item in "${missing[@]}"; do
-    case "$manager:$item" in
-      apt:docker) packages+=(docker.io) ;;
-      apt:compose) packages+=(docker-compose-plugin) ;;
-      apt:python3) packages+=(python3) ;;
-      apt:git) packages+=(git) ;;
-      dnf:docker|yum:docker) packages+=(docker) ;;
-      dnf:compose|yum:compose) packages+=(docker-compose-plugin) ;;
-      dnf:python3|yum:python3) packages+=(python3) ;;
-      dnf:git|yum:git) packages+=(git) ;;
-    esac
-  done
-  install_missing_packages "$manager" "${packages[@]}"
-
-  if [[ "${INSTALL_TEST_SKIP_ENV_RECHECK:-false}" == true ]]; then
-    echo "测试模式：已记录缺失环境安装命令。"
-    exit 1
-  fi
-
-  local still_missing=()
-  command -v docker >/dev/null 2>&1 || still_missing+=(docker)
-  if command -v docker >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then
-    still_missing+=(compose)
-  fi
-  command -v python3 >/dev/null 2>&1 || still_missing+=(python3)
-  command -v git >/dev/null 2>&1 || still_missing+=(git)
-  if [[ ${#still_missing[@]} -gt 0 ]]; then
-    echo "自动安装后仍缺少：${still_missing[*]}。请按系统提示完成 Docker 官方安装后重试。" >&2
-    exit 1
-  fi
-  echo "缺失环境已补全。"
-}
 
 if [[ ! -f docker-compose.yml ]]; then
   echo "请从包含 docker-compose.yml 的项目目录运行 deploy/install.sh。" >&2
@@ -159,6 +49,10 @@ fi
 update_source() {
   # 测试夹具和手工拷贝的源码可能没有 .git；真正的仓库才自动同步。
   [[ "$AFTER_SOURCE_UPDATE" == true ]] && return 0
+  if [[ "$SKIP_SOURCE_UPDATE" == true ]]; then
+    echo "已跳过源码更新，使用当前代码。"
+    return 0
+  fi
   [[ "${INSTALL_TEST_SKIP_GIT_UPDATE:-false}" == true ]] && return 0
   [[ -d .git ]] || return 0
   command -v git >/dev/null 2>&1 || return 0
@@ -166,45 +60,42 @@ update_source() {
   local branch before after
   branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
   if [[ -z "$branch" ]]; then
-    echo "当前不是 Git 分支（可能处于 detached HEAD），无法自动升级。" >&2
-    echo "请切换到 main 分支后重新运行：git switch main" >&2
+    echo "当前处于 detached HEAD，无法自动更新分支。" >&2
+    echo "请切换到部署分支后重试；若要保留当前源码，使用 --skip-source-update。" >&2
     exit 1
   fi
   before="$(git rev-parse HEAD 2>/dev/null || true)"
 
-  echo "正在检查 GitHub 更新（分支：$branch）..."
+  echo "正在检查 origin/$branch 的更新..."
   if ! git diff --quiet || [[ -n "$(git status --porcelain)" ]]; then
     echo "检测到项目目录有本地修改，为避免覆盖文件，已停止升级。" >&2
     echo "请先处理这些修改，再重新运行 ./deploy/install.sh。" >&2
     exit 1
   fi
-  git fetch origin
-  git pull --ff-only origin "$branch"
+  if ! GIT_TERMINAL_PROMPT=0 git fetch origin || ! GIT_TERMINAL_PROMPT=0 git merge --ff-only "origin/$branch"; then
+    echo "源码更新失败（网络、远端分支或提交分叉）。未开始部署。" >&2
+    echo "请修复更新问题后重试；若要使用当前源码，添加 --skip-source-update。" >&2
+    exit 1
+  fi
   after="$(git rev-parse HEAD 2>/dev/null || true)"
   if [[ "$before" != "$after" ]]; then
-    echo "代码已更新，正在重新加载最新安装脚本..."
-    if [[ "$NON_INTERACTIVE" == true ]]; then
-      exec bash ./deploy/install.sh --non-interactive --after-source-update
-    fi
-    exec bash ./deploy/install.sh --after-source-update
+    echo "源码已更新，重新加载安装器..."
+    local reload_args=()
+    [[ "$NON_INTERACTIVE" != true ]] || reload_args+=(--non-interactive)
+    reload_args+=(--after-source-update)
+    [[ "$INSTALL_REQUIRE_ATTESTATIONS" != false ]] || reload_args+=(--compat)
+    exec bash ./deploy/install.sh "${reload_args[@]}"
   fi
   echo "代码已是最新。"
 }
 
 update_source
 
-check_environment
+source "$SCRIPT_DIR/install-environment.sh"
+check_environment || exit $?
 
 normalize_origin() {
-  python3 - "$1" <<'PY'
-from urllib.parse import urlsplit
-import sys
-value = sys.argv[1].strip()
-parsed = urlsplit(value)
-if parsed.scheme not in ('http', 'https') or not parsed.netloc or parsed.path not in ('', '/') or parsed.query or parsed.fragment:
-    raise SystemExit(1)
-print(f'{parsed.scheme}://{parsed.netloc}')
-PY
+  python3 "$SCRIPT_DIR/install-config.py" origin "$1"
 }
 
 prompt_origin() {
@@ -219,10 +110,13 @@ prompt_origin() {
       echo "当前值：$current" >&2
       printf '直接按 Enter 保留当前值：' >&2
     else
-      echo "示例：$example" >&2
+      echo "示例：$example（请填实际地址；已有占位值也会在 Enter 时保留）" >&2
       printf '> ' >&2
     fi
-    IFS= read -r entered
+    if ! IFS= read -r entered; then
+      echo "输入已结束，未保存配置或启动服务。" >&2
+      return 2
+    fi
     entered="${entered:-$current}"
     if normalized="$(normalize_origin "$entered")"; then
       printf '%s' "$normalized"
@@ -241,7 +135,10 @@ confirm_install() {
     echo "后端 API URL：$VITE_API_URL_VALUE"
     echo
     printf '按 Enter 保存配置并开始安装，输入 e 重新编辑，输入 q 退出：'
-    IFS= read -r choice
+    if ! IFS= read -r choice; then
+      echo "输入已结束，未保存配置或启动服务。" >&2
+      exit 2
+    fi
     case "${choice,,}" in
       "") return 0 ;;
       e) return 1 ;;
@@ -252,50 +149,18 @@ confirm_install() {
 }
 
 upsert_env() {
-  local key="$1"
-  local value="$2"
-  local temp
-  temp="$(mktemp)"
-  python3 - "$key" "$value" .env "$temp" <<'PY'
-from pathlib import Path
-import sys
-key, value, source, target = sys.argv[1:]
-path = Path(source)
-lines = path.read_text().splitlines() if path.exists() else []
-replacement = f'{key}={value}'
-updated = []
-found = False
-for line in lines:
-    if line.startswith(f'{key}='):
-        if not found:
-            updated.append(replacement)
-            found = True
-        continue
-    updated.append(line)
-if not found:
-    updated.append(replacement)
-Path(target).write_text('\n'.join(updated) + '\n')
-PY
-  chmod 600 "$temp"
-  mv "$temp" .env
+  python3 "$SCRIPT_DIR/install-config.py" upsert "$1" "$2" .env
 }
 
 read_env() {
-  local key="$1"
-  python3 - "$key" .env <<'PY'
-from pathlib import Path
-import sys
-key = sys.argv[1]
-for line in Path(sys.argv[2]).read_text().splitlines():
-    if line.startswith(f'{key}='):
-        print(line.split('=', 1)[1], end='')
-        break
-PY
+  python3 "$SCRIPT_DIR/install-config.py" read "$1" .env
 }
 
 ensure_generated_secret() {
   local key="$1"
-  if [[ -z "$(read_env "$key")" ]]; then
+  local current
+  current="$(read_env "$key")" || return $?
+  if [[ -z "$current" ]]; then
     upsert_env "$key" "$(python3 - <<'PY'
 import secrets
 print(secrets.token_hex(32))
@@ -305,22 +170,13 @@ PY
 }
 
 remove_env_keys() {
-  local temp
-  temp="$(mktemp)"
-  python3 - .env "$temp" "$@" <<'PY'
-from pathlib import Path
-import sys
-source, target, *keys = sys.argv[1:]
-blocked = set(keys)
-lines = Path(source).read_text().splitlines() if Path(source).exists() else []
-kept = [line for line in lines if line.split('=', 1)[0] not in blocked]
-Path(target).write_text('\n'.join(kept) + ('\n' if kept else ''))
-PY
-  chmod 600 "$temp"
-  mv "$temp" .env
+  python3 "$SCRIPT_DIR/install-config.py" remove .env "$@"
 }
 
 created_env=false
+STORAGE_EXISTING="$(python3 "$SCRIPT_DIR/install-storage.py" existing)"
+export STORAGE_EXISTING
+LOCAL_STORAGE_NEW_PATH=""
 CURRENT_CORS_ORIGIN=""
 CURRENT_VITE_API_URL=""
 if [[ -f .env ]]; then
@@ -348,18 +204,23 @@ if [[ "$NON_INTERACTIVE" == false ]]; then
   echo "TG Vault 安装向导"
   echo
   if [[ "$created_env" == true ]]; then
-    echo "这是首次部署。你只需要提供 Web 前端 URL 和后端 API URL。"
+    echo "首次部署：填写 Web 和 API 的 HTTPS 地址。"
     echo "数据库密码和应用密钥会自动生成。"
   else
-    echo "检测到已有部署。请确认下面的地址仍然正确；直接按 Enter 保留。"
-    echo "本次升级只重建 backend/frontend，不删除数据库和持久化文件。"
+    echo "已有部署：核对地址，按 Enter 保留。升级前请备份 .env、数据库和文件卷。"
+    echo "本次只重建前后端，保留数据库和文件卷；替换服务会短暂中断访问。"
   fi
   echo
   while true; do
     CORS_ORIGIN_VALUE="$(prompt_origin '请输入 Web 前端 URL' 'https://cloud.example.com' "$CORS_ORIGIN_VALUE")"
     VITE_API_URL_VALUE="$(prompt_origin '请输入后端 API URL' 'https://api.example.com' "$VITE_API_URL_VALUE")"
     if [[ "$CORS_ORIGIN_VALUE" != https://* || "$VITE_API_URL_VALUE" != https://* ]]; then
-      echo "警告：当前配置包含 HTTP 地址，登录 Cookie 或接口流量可能无法获得生产级保护。" >&2
+      echo "警告：HTTP 不加密请求，默认安全 Cookie 无法用于 HTTP 登录；生产环境请改用 HTTPS。" >&2
+    fi
+    if [[ "$STORAGE_EXISTING" == false ]]; then
+      printf '文件保存位置（服务器目录，默认 %s/data）：' "$PWD"
+      IFS= read -r LOCAL_STORAGE_NEW_PATH || exit 2
+      LOCAL_STORAGE_NEW_PATH="${LOCAL_STORAGE_NEW_PATH:-$PWD/data}"
     fi
     if confirm_install; then
       break
@@ -380,6 +241,18 @@ else
   fi
 fi
 
+# Runtime dependency startup is required even with a pre-existing .env.
+source "$SCRIPT_DIR/install-runtime.sh"
+CURRENT_DB_PASSWORD="$(read_env DB_PASSWORD)"
+assert_database_credentials_safe "$CURRENT_DB_PASSWORD"
+validate_install_timeout
+
+if [[ "$STORAGE_EXISTING" == false ]]; then
+  LOCAL_STORAGE_NEW_PATH="$(python3 "$SCRIPT_DIR/install-storage.py" create "${LOCAL_STORAGE_NEW_PATH:-${INSTALL_STORAGE_PATH:-$PWD/data}}")"
+else
+  echo '保留原文件保存位置；不迁移文件，不应用新目录默认值。'
+fi
+
 if [[ "$created_env" == true ]]; then
   umask 077
   touch .env
@@ -391,6 +264,18 @@ if [[ "$created_env" == true ]]; then
   upsert_env COOKIE_SECURE_FORCE true
 fi
 
+if [[ -n "$LOCAL_STORAGE_NEW_PATH" ]]; then
+  upsert_env LOCAL_STORAGE_SOURCE "$LOCAL_STORAGE_NEW_PATH"
+  STORAGE_METADATA="$(python3 "$SCRIPT_DIR/install-storage.py" metadata "$LOCAL_STORAGE_NEW_PATH" bind)"
+  while IFS='=' read -r key value; do upsert_env "$key" "$value"; done < <(
+    printf '%s' "$STORAGE_METADATA" | python3 -c 'import json,sys; [print(k+"="+v) for k,v in json.load(sys.stdin).items()]'
+  )
+fi
+# Pin persisted storage settings against ambient Compose overrides.
+for key in LOCAL_STORAGE_SOURCE LOCAL_STORAGE_MOUNT_TYPE LOCAL_STORAGE_HOST_ROOT LOCAL_STORAGE_CONTAINER_ROOT LOCAL_STORAGE_DEVICE LOCAL_STORAGE_INODE; do
+  value="$(read_env "$key")"
+  export "$key=$value"
+done
 chmod 600 .env
 ensure_generated_secret DB_PASSWORD
 if [[ "$created_env" == true ]]; then
@@ -409,10 +294,22 @@ print(json.loads(Path('backend/package.json').read_text())['version'])
 PY
 )"
 
-env IMAGE_VERSION="$RELEASE_VERSION" SOURCE_REVISION="$RELEASE_REVISION" SOURCE_VERSION="$RELEASE_VERSION" docker compose config --quiet
-env IMAGE_VERSION="$RELEASE_VERSION" SOURCE_REVISION="$RELEASE_REVISION" SOURCE_VERSION="$RELEASE_VERSION" docker compose build backend frontend
-env IMAGE_VERSION="$RELEASE_VERSION" SOURCE_REVISION="$RELEASE_REVISION" SOURCE_VERSION="$RELEASE_VERSION" docker compose up -d --no-build --no-deps backend frontend
-docker compose ps
+# Shell variables have higher Compose precedence than .env. Pin confirmed URLs
+# in the actual child environment as well as the file.
+CORS_ORIGIN="$CORS_ORIGIN_VALUE"
+VITE_API_URL="$VITE_API_URL_VALUE"
+DB_PASSWORD="$(read_env DB_PASSWORD)"
+DB_PASSWORD_URI="$(python3 - "$DB_PASSWORD" <<'PY'
+import sys
+from urllib.parse import quote
+print(quote(sys.argv[1], safe=''))
+PY
+)"
+SESSION_SECRET="$(read_env SESSION_SECRET)"
+STORAGE_CREDENTIALS_SECRET="$(read_env STORAGE_CREDENTIALS_SECRET)"
+export CORS_ORIGIN VITE_API_URL DB_PASSWORD DB_PASSWORD_URI SESSION_SECRET STORAGE_CREDENTIALS_SECRET
+prepare_install_compose
+start_installation
 
 if [[ "$created_env" == true ]]; then
   echo "TG Vault 首次部署完成"
@@ -422,7 +319,7 @@ fi
 echo "Web：$CORS_ORIGIN_VALUE"
 echo "API：$VITE_API_URL_VALUE"
 echo
-echo "请在宿主机 Nginx/面板中配置 HTTPS："
+echo "容器健康检查已通过。公网访问还需宿主机 Nginx/面板的 HTTPS 反向代理："
 echo "  Web  -> http://127.0.0.1:47832"
 echo "  API  -> http://127.0.0.1:51947"
-echo "验证：curl -fsS http://127.0.0.1:51947/readyz"
+echo "本机就绪检查：curl -fsS http://127.0.0.1:51947/readyz；另请验证 Web/API 的 HTTPS 地址。"

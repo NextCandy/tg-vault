@@ -1,6 +1,6 @@
 /**
  * telegramMessages.ts - 统一消息模板模块
- * 
+ *
  * 所有 Telegram Bot 文本输出的单一来源。
  * 职责：消息格式化、存储提供商显示名、进度条渲染等。
  */
@@ -33,8 +33,8 @@ function buildTaskControlLines(taskId?: string, queuePaused = false, pauseReason
                         : `♻️ 条件满足后自动恢复`
                 : `⚠️ 处理原因后可重试`
             : pausing
-                ? `点击“继续”可撤销暂停`
-                : `点击“继续”恢复任务`;
+                ? `点击“继续任务”可继续下载`
+                : `点击“继续任务”恢复任务`;
         return [
             systemPaused
                 ? `当前状态：系统保护暂停`
@@ -98,7 +98,7 @@ function formatFolderSummary(folders: string[], maxItems = 4): string[] {
 
 export function generateProgressBar(completed: number, total: number, barLength: number = 20): string {
     if (total <= 0) return '[' + '='.repeat(barLength - 1) + '-' + '] 0%';
-    const ratio = Math.min(completed / total, 1);
+    const ratio = Number.isFinite(completed) && Number.isFinite(total) ? Math.max(0, Math.min(completed / total, 1)) : 0;
     const percentage = Math.round(ratio * 100);
     const filledLength = Math.round(ratio * (barLength - 1));
     const emptyLength = (barLength - 1) - filledLength;
@@ -135,12 +135,12 @@ export const MSG = {
     AUTH_INPUT_PROMPT: '🔐 请使用下方键盘输入密码：',
     AUTH_CANCELLED: '🚫 已取消密码输入\n\n发送 /start 重新开始',
     AUTH_WRONG: '❌ 密码错误，请重新输入：',
-    AUTH_SUCCESS: '✅ 密码验证成功!',
-    AUTH_2FA_PROMPT: '🔐 密码验证通过！\n\n请输入您的 **2FA 6 位验证码** 以完成登录：',
+    AUTH_SUCCESS: '✅ 密码验证通过',
+    AUTH_2FA_PROMPT: '🔐 密码验证通过\n\n请输入 **6 位 2FA 验证码** 完成登录：',
     AUTH_2FA_TOAST: '请输入 2FA 验证码',
     AUTH_2FA_WRONG: '❌ 验证码错误，请重新输入 6 位数字：',
-    AUTH_2FA_ACTIVATED: '✅ **2FA 已成功激活！**\n\n🛡️ 您的账户现在受到双重保护。',
-    AUTH_2FA_LOGIN_OK: '✅ **2FA 验证成功**\n\n欢迎回来！',
+    AUTH_2FA_ACTIVATED: '✅ **2FA 已启用**',
+    AUTH_2FA_LOGIN_OK: '✅ **2FA 验证通过**',
     AUTH_2FA_QR_FAIL: '❌ 生成二维码失败，请检查控制台日志。',
 
     // 未知消息
@@ -186,15 +186,13 @@ export function buildHelp(locale: TelegramLocale = DEFAULT_LOCALE): string {
 }
 
 /** 2FA 设置 QR 码的 caption */
-export function build2FASetupCaption(): string {
-    return [
-        `🔐 **双重验证 (2FA) 设置**`,
-        ``,
-        `1️⃣ 使用 Google Authenticator 或其他 2FA App 扫描此二维码`,
-        `2️⃣ 扫描后直接发送 App 生成的 **6 位验证码**`,
-        ``,
-        `⏳ 激活成功后二维码将自动删除`,
-    ].join('\n');
+export function build2FASetupCaption(locale: TelegramLocale = DEFAULT_LOCALE): string {
+    const copy = {
+        'zh-CN': '🔐 **设置双重验证**\n\n用验证器 App 扫码，然后发送 **6 位验证码**。\n请勿分享二维码。启用后二维码消息会删除。',
+        en: '🔐 **Set up two-factor authentication**\n\nScan with an authenticator app, then send the **6-digit code**.\nDo not share this QR code. Its message is deleted after activation.',
+        ru: '🔐 **Настройка двухфакторной аутентификации**\n\nОтсканируйте QR-код приложением-аутентификатором и отправьте **6-значный код**.\nНе передавайте QR-код другим. Сообщение будет удалено после активации.',
+    };
+    return copy[locale];
 }
 
 // ─── 存储统计报告 ────────────────────────────────────────────
@@ -320,7 +318,7 @@ export function buildTasksReport(
                 const bar = generateProgressBar(task.downloadedSize, task.totalSize, 10);
                 lines.push(`    ${bar}  (${formatBytes(task.downloadedSize)}/${formatBytes(task.totalSize)})`);
             } else {
-                lines.push(`    传输中，请稍候...`);
+                lines.push(`    传输中...`);
             }
         });
     }
@@ -404,18 +402,18 @@ export function buildDownloadProgress(
     downloaded: number,
     total: number,
     typeEmoji: string,
-    startTime?: number,
+    _startTime?: number,
     locale: TelegramLocale = DEFAULT_LOCALE,
+    speedBytesPerSecond: number = 0,
 ): string {
-    const bar = startTime
-        ? generateProgressBarWithSpeed(downloaded, total, startTime)
-        : generateProgressBar(downloaded, total);
+    const bar = generateProgressBar(downloaded, total);
+    const speed = Number.isFinite(speedBytesPerSecond) ? Math.max(0, speedBytesPerSecond) : 0;
     return [
         t(locale, 'upload.downloading'),
-        `${bar}`,
+        `${bar} ⚡ ${formatLocalizedBytes(speed, locale)}/s`,
         ``,
         `${typeEmoji} ${fileName}`,
-        `${formatLocalizedBytes(downloaded, locale)} / ${formatLocalizedBytes(total, locale)}`,
+        `${formatLocalizedBytes(downloaded, locale)} / ${total > 0 ? formatLocalizedBytes(total, locale) : "—"}`,
     ].join('\n');
 }
 
@@ -470,7 +468,7 @@ export function buildSilentModeNotice(fileCount: number, taskId?: string, queueP
         queuePaused ? (systemPause ? `⏸️ **已进入系统保护暂停**` : `⏸️ **后台下载已暂停**`) : `🤐 **已切换到静默模式**`,
         ...(taskId ? [`🆔 任务：\`${taskId}\``] : []),
         ``,
-        queuePaused ? `等待任务已暂停，不会继续开始新的下载。` : `Bot 将在后台继续处理所有文件，请耐心等待。`,
+        queuePaused ? `等待任务已暂停，不会继续开始新的下载。` : `文件将在后台继续处理。`,
         ``,
         ...buildTaskControlLines(taskId, queuePaused, pauseReason, systemPause),
     ].join('\n');
@@ -556,12 +554,12 @@ export function buildSilentProgress(
 
 /** 静默模式完成 (单文件) */
 export function buildSilentComplete(typeEmoji: string, providerName: string): string {
-    return `✅ **上传完成！**\n🏷️ 类型: ${typeEmoji}\n📍 ${getProviderDisplayName(providerName)}`;
+    return `✅ **上传完成**\n🏷️ 类型: ${typeEmoji}\n📍 ${getProviderDisplayName(providerName)}`;
 }
 
 /** 静默模式完成 (多文件) */
 export function buildSilentBatchComplete(types: string, providerName: string): string {
-    return `✅ **多文件上传完成！**\n🏷️ 类型: ${types}\n📍 ${getProviderDisplayName(providerName)}`;
+    return `✅ **多文件上传完成**\n🏷️ 类型: ${types}\n📍 ${getProviderDisplayName(providerName)}`;
 }
 
 export function buildSilentAllTasksComplete(
@@ -604,6 +602,7 @@ export interface ConsolidatedUploadFile {
     fileName: string;
     typeEmoji: string;
     phase: 'queued' | 'downloading' | 'saving' | 'success' | 'failed' | 'retrying' | 'cancelled';
+    speedBytesPerSecond?: number;
     downloaded?: number;
     total?: number;
     size?: number;
@@ -659,8 +658,8 @@ export async function buildConsolidatedStatus(
         const totalSize = [...singleFiles.filter(f => f.phase === 'success'), ...batches.flatMap(b => [])]
             .reduce((sum, f) => sum + (f.size || 0), 0);
 
-        statusIcon = totalFailed === 0 ? '🎉' : '⚠️';
-        statusText = totalFailed === 0 ? '任务全部完成！' : `任务完成 (${totalFailed} 个失败)`;
+        statusIcon = totalFailed === 0 ? '✅' : '⚠️';
+        statusText = totalFailed === 0 ? '任务全部完成' : `任务完成 (${totalFailed} 个失败)`;
     }
 
     const lines: string[] = [
@@ -721,11 +720,11 @@ export async function buildConsolidatedStatus(
 
         // 添加友好的结束消息
         if (totalFailed === 0) {
-            lines.push('🎊 所有文件已安全上传到云端！');
-            lines.push('💡 您可以随时使用 /list 查看上传记录');
+            lines.push('✅ 上传完成。');
+            lines.push('💡 /list 查看上传记录');
         } else {
             lines.push('💡 部分文件上传失败，未自动清理服务器缓存');
-            lines.push('🔄 您可以重新发送失败的文件');
+            lines.push('🔄 可重新发送失败的文件');
         }
         lines.push('');
     }
@@ -746,13 +745,7 @@ export async function buildConsolidatedStatus(
             switch (file.phase) {
                 case 'downloading':
                     icon = '⬇️';
-                    if (file.downloaded !== undefined && file.total) {
-                        const pct = Math.round((file.downloaded / file.total) * 100);
-                        const progressBar = generateProgressBar(file.downloaded, file.total);
-                        detail = `${progressBar} ${pct}%`;
-                    } else {
-                        detail = '下载中...';
-                    }
+                    detail = `${generateProgressBar(file.downloaded || 0, file.total || 0)} ${formatBytes(file.downloaded || 0)} / ${file.total ? formatBytes(file.total) : '—'} ⚡ ${formatBytes(Number.isFinite(file.speedBytesPerSecond) ? Math.max(0, file.speedBytesPerSecond || 0) : 0)}/s`;
                     break;
                 case 'saving':
                     icon = '💾'; detail = '保存...'; break;
@@ -852,10 +845,8 @@ export function buildCleanupNotice(deletedCount: number, freedSpace: string): st
         `🧹 **系统启动清理完成**`,
         ``,
         `📊 清理统计：`,
-        `  删除孤儿文件: ${deletedCount} 个`,
+        `  删除未登记临时文件: ${deletedCount} 个`,
         `  释放空间: ${freedSpace}`,
-        ``,
-        `💡 这些是之前上传失败残留的文件`,
     ].join('\n');
 }
 
@@ -889,7 +880,7 @@ export function buildBatchStatus(data: BatchStatusData): string {
     let statusText: string;
 
     if (completed === total) {
-        if (failed === 0) { statusIcon = '✅'; statusText = '多文件上传完成！'; }
+        if (failed === 0) { statusIcon = '✅'; statusText = '多文件上传完成'; }
         else if (successful === 0) { statusIcon = '❌'; statusText = '多文件上传失败'; }
         else { statusIcon = '⚠️'; statusText = `多文件上传部分完成 (${failed} 个失败)`; }
     } else {
@@ -911,7 +902,7 @@ export function buildBatchStatus(data: BatchStatusData): string {
 
     // 排队提示
     if (completed < total && (data.queuePending > 0 || data.queueActive >= 2)) {
-        lines.push(`⏳ 队列排队: ${data.queuePending}`);
+        lines.push(`⏳ 排队: ${data.queuePending}`);
     }
 
     // 类型和存储

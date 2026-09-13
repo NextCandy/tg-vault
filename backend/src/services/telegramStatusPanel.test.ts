@@ -15,7 +15,7 @@ const input = {
 
 test('status panel presents every operational component and an operation id', () => {
     const text = buildTelegramStatusPanel(input as any);
-    for (const expected of ['req-1234', 'Bot：正常', '账号下载器：登录已过期', '当前存储：s3 · Archive', '连接检查：异常', '临时磁盘：可用 1 KB / 4 KB', '队列', '订阅', '待对账：2', '需人工：1']) {
+    for (const expected of ['req-1234', 'Bot：正常', '账号下载器：登录已过期', '当前存储：s3 · Archive', '连接检查：异常', '临时磁盘：可用 1 KB / 4 KB', '队列', '订阅', '待处理 2', '需人工 1']) {
         assert.match(text, new RegExp(expected));
     }
 });

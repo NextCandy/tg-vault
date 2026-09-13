@@ -1,9 +1,30 @@
 {
+  "localStorageLocation": {
+    "hostPath": "Storage path",
+    "unconfirmed": "Path unconfirmed. Ask an administrator to check the mount.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Copy failed. Select the path manually.",
+    "status": "Status",
+    "available": "Readable and writable",
+    "read-only": "Read-only or not writable",
+    "unavailable": "Unavailable",
+    "free": "Disk space available",
+    "unknown": "Unknown",
+    "capacityNote": "Free space is shared with other apps.",
+    "details": "Technical details",
+    "containerPath": "Container directory",
+    "mountType": "Mount type",
+    "mappingNote": "Recheck the path after mount changes.",
+    "loading": "Loading…",
+    "loadFailed": "Could not load local storage information.",
+    "retry": "Retry"
+},
   "app": {
     "title": "TG Vault",
-    "subtitle": "Manage and organize your digital assets.",
+    "subtitle": "Browse and manage files.",
     "filesSubtitle": "Browse and manage all files and folders.",
-    "favoritesSubtitle": "View and manage your favorite files and folders in one place.",
+    "favoritesSubtitle": "View favorite files and folders.",
     "allFiles": "All files",
     "fileTypes": {
       "filter": "File type",
@@ -60,7 +81,7 @@
     "verify": "Verify and sign in",
     "verifying": "Verifying authentication code",
     "back": "Back to password",
-    "setupFooter": "First production access requires an administrator password and, when the Bot is configured, a four-digit Telegram Bot PIN.",
+    "setupFooter": "Set an administrator password before first use. If the Bot is configured, also set a four-digit PIN.",
     "sessionFooter": "The sign-in session is kept for seven days.",
     "showPassword": "Show password",
     "hidePassword": "Hide password",
@@ -69,7 +90,7 @@
       "passwordMismatch": "The administrator passwords do not match",
       "pinFormat": "The Telegram Bot PIN must be exactly four digits",
       "pinMatchesPassword": "The administrator password cannot match the four-digit Telegram Bot PIN",
-      "setupUnavailable": "The setup service is not ready",
+      "setupUnavailable": "Initial setup is unavailable. Try again later.",
       "setupFailed": "Setup failed",
       "setupRequestFailed": "The setup request failed",
       "passwordRequired": "Enter your password",
@@ -82,7 +103,7 @@
   },
   "sidebar": {
     "uploadCenter": "Upload center",
-    "files": "My files",
+    "files": "Files",
     "dashboard": "Dashboard",
     "settings": "Settings",
     "media": "Media",
@@ -153,7 +174,7 @@
     "description": "Try dragging files here or check your filters.",
     "root": {
       "title": "No files here yet",
-      "description": "Upload a file or create a folder to start organizing your assets."
+      "description": "Upload files or create a folder."
     },
     "folder": {
       "title": "This folder is empty",
@@ -290,7 +311,7 @@
   "tasks": {
     "title": "Task center",
     "subtitle": "View and manage Web, Telegram, and channel subscription tasks.",
-    "subtitleScoped": "Only tasks or Telegram targets that still reference the selected storage account are shown.",
+    "subtitleScoped": "Only tasks or Telegram destinations using the selected storage account are shown.",
     "showAll": "Show all tasks",
     "updated": "Updated: {{time}}",
     "runningNotDismissible": "This task is running, so its record cannot be removed yet.",
@@ -363,7 +384,7 @@
       "followDefault": "Follow default",
       "clearTarget": "Clear target",
       "cancel": "Cancel",
-      "cleanTerminal": "Clean terminal records",
+      "cleanTerminal": "Clear finished task records",
       "refreshAria": "Refresh tasks",
       "refresh": "Refresh",
       "closeNotice": "Close notice",
@@ -385,7 +406,7 @@
     },
     "progress": {
       "speed": "Speed {{speed}}",
-      "eta": "ETA {{eta}}",
+      "eta": "About {{eta}} remaining",
       "items": "Items {{completed}}/{{total}}",
       "failed": ", {{count}} failed",
       "data": "Data {{transferred}} / {{total}}"
@@ -396,8 +417,8 @@
       "targetUnchanged": "Target remains: {{target}}",
       "confirmRetry": "Confirm retry",
       "dismissTitle": "Confirm removal from task center",
-      "dismissCount": "{{count}} terminal records will be removed.",
-      "dismissDescription": "This only hides records from the task center. It does not delete files, cloud objects, subscription configuration, or underlying task data. The record will reappear if its status changes."
+      "dismissCount": "Remove {{count}} finished task records.",
+      "dismissDescription": "Hide records from Task Center only. Files, cloud objects, subscriptions, and task data are kept. Records reappear if the task status changes."
     },
     "notices": {
       "subscriptionDefault": "Channel subscription now follows the system default storage",

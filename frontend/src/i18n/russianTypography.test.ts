@@ -27,7 +27,9 @@ const loadCatalog = (file: string) => {
 test('Russian catalogs use clean UTF-8 text and no invisible spacing controls', () => {
   for (const catalog of russianCatalogs.map(loadCatalog)) {
     for (const [key, value] of catalog.entries) {
+      // eslint-disable-next-line no-misleading-character-class -- Detect each forbidden spacing code point independently.
       assert.doesNotMatch(value, /[\u200B\u200C\u200D\u2060\uFEFF\u3000]/, `${catalog.file}:${key} contains invisible or ideographic spacing`);
+      // eslint-disable-next-line no-control-regex -- This assertion intentionally rejects control characters.
       assert.doesNotMatch(value, /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/, `${catalog.file}:${key} contains a control character`);
     }
   }
@@ -53,7 +55,7 @@ test('frontend declares a Cyrillic-safe sans-serif stack and neutral tracking de
 
 test('Russian UI disables Latin-oriented tracking and word breaking on every locale root', () => {
   const css = fs.readFileSync(path.join(frontendRoot, 'src', 'index.css'), 'utf8');
-  assert.match(css, /html\[lang=\"ru\"\]\s*,\s*html\[lang\^=\"ru-\"\]/);
+  assert.match(css, /html\[lang="ru"\]\s*,\s*html\[lang\^="ru-"\]/);
   assert.match(css, /font-family:\s*var\(--font-sans-ru\)/);
   assert.match(css, /letter-spacing:\s*normal/);
   assert.match(css, /word-spacing:\s*normal/);
@@ -67,7 +69,7 @@ test('storage headers keep Russian descriptions from collapsing beside action bu
   const settings = fs.readFileSync(path.join(frontendRoot, 'src', 'components', 'pages', 'SettingsPage.tsx'), 'utf8');
   const openList = settings.slice(settings.indexOf("sectionId=\"openlist\""));
   assert.match(openList, /flex min-w-0 flex-1 items-center gap-3/);
-  assert.match(openList, /<div className=\"min-w-0 flex-1\">/);
+  assert.match(openList, /<div className="min-w-0 flex-1">/);
   assert.match(openList, /ru-copy text-xs text-muted-foreground[^\n]*t\('settings\.openlist\.description'\)/);
   assert.match(openList, /settings\.openlist\.rootHint/);
 });

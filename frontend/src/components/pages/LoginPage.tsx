@@ -137,7 +137,7 @@ export const LoginPage = ({ onLogin, setupRequired = false, telegramPinRequired 
                             src="/logo-160.webp?v=tg-vault"
                             srcSet="/logo-80.webp?v=tg-vault 80w, /logo-160.webp?v=tg-vault 160w"
                             sizes="80px"
-                            alt="TG Vault Logo"
+                            alt="TG Vault"
                             width="80"
                             height="80"
                             decoding="async"

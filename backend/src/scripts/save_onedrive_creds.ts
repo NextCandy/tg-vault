@@ -71,14 +71,13 @@ async function main() {
         console.log('✓ 存储提供商已切换为 OneDrive');
         console.log('==========================================\n');
 
-        console.log('下一步：重启后端服务使配置生效');
-        console.log('  cd backend && npm run dev\n');
+        console.log('重启后端服务后生效。Docker 部署可运行：docker compose restart backend\n');
 
     } catch (err: any) {
-        console.error('\n✗ 自动保存凭证失败 (可能是因为本地没有运行数据库)');
+        console.error('\n✗ OneDrive 凭证保存失败');
         console.error('  错误信息:', err.message);
 
-        console.log('\n请通过应用设置页面重新添加 OneDrive，或使用环境变量重新运行本脚本。不会输出包含 refresh token 的 SQL。\n');
+        console.log('\n检查数据库连接后重试，或在 Web 设置中添加 OneDrive。\n');
 
         process.exit(1);
     } finally {

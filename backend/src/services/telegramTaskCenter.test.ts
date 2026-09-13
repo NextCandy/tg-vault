@@ -104,7 +104,7 @@ function testBuildsStateSpecificDetailControls() {
     const pausing = buildTaskCenterDetail(item({ state: 'pausing', active: 1, pending: 2, total: 4, completed: 1 }), 0, { now });
     assert.match(pausing.text, /正在完成当前文件/);
     assert(!findButtonText(pausing.rows, /完成当前文件后暂停/));
-    assert(findButtonText(pausing.rows, /撤销暂停/));
+    assert(findButtonText(pausing.rows, /继续任务/));
     assert(findButtonText(pausing.rows, /取消/));
 
     const paused = buildTaskCenterDetail(item({ state: 'paused', pending: 4, total: 5, completed: 1, reason: '用户请求暂停' }), 0, { now });
@@ -343,10 +343,10 @@ function taskControlButtonTexts(paused: boolean, systemPause?: { kind: 'disk_pre
 
 function testLegacyTaskCardShowsOnlyValidActions() {
     assert.deepEqual(taskControlButtonTexts(false), ['⏸ 暂停', '🛑 取消']);
-    assert.deepEqual(taskControlButtonTexts(true), ['▶️ 继续', '🛑 取消']);
-    assert.deepEqual(taskControlButtonTexts(false, undefined, true), ['▶️ 继续', '🛑 取消']);
+    assert.deepEqual(taskControlButtonTexts(true), ['▶️ 继续任务', '🛑 取消']);
+    assert.deepEqual(taskControlButtonTexts(false, undefined, true), ['▶️ 继续任务', '🛑 取消']);
     assert.deepEqual(taskControlButtonTexts(true, { kind: 'disk_pressure', reason: '磁盘空间不足', autoResume: true, recheckMs: 30_000 }), ['🛑 取消']);
-    assert.deepEqual(taskControlButtonTexts(true, { kind: 'disk_pressure', reason: '磁盘空间不足', autoResume: true, recheckMs: 30_000 }, false, true), ['▶️ 继续', '🛑 取消']);
+    assert.deepEqual(taskControlButtonTexts(true, { kind: 'disk_pressure', reason: '磁盘空间不足', autoResume: true, recheckMs: 30_000 }, false, true), ['▶️ 继续任务', '🛑 取消']);
     const initialSystemNotice = buildSilentModeNotice(
         2,
         'task',

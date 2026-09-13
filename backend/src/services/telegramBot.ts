@@ -7,6 +7,9 @@ import path from 'path';
 import crypto from 'crypto';
 import { storageManager, type StorageTargetSnapshot } from '../services/storage.js';
 import { passwordInputState, isAuthenticatedAsync, loadAuthenticatedUsers, persistAuthenticatedUser, revokeAuthenticatedUser, reconcileTelegramAllowedUsers, userStates, TelegramUserState } from './telegramState.js';
+import { buildSecurityLoginNotification, type TelegramLoginDetails } from './telegramLoginNotification.js';
+import { buildProgressControlButtons, registerProgressCard, isInteractiveProgressCard } from './telegramProgressControls.js';
+import { channelTaskCenterItem } from './telegramTaskCenter.js';
 import { is2FAEnabled, generateOTPAuthUrl, verifyTOTP, activate2FA } from '../utils/security.js';
 import { handleStart, handleHelp, handleNotifications, handleNotificationsCallback, handleStatus, handleStorage, handleStorageSwitch, handleStorageSwitchCallback, handleTarget, handleTargetCallback, handleFind, handleList, handleDelete, handleDeleteConfirmCallback, handleTelegramFileBrowserCallback, applyPendingTelegramFileMutation, handleTasks, handleTaskCenterCallback, handleBulkTaskCancelCallback, handleStopTasks, handlePauseTasks, handleResumeTasks, handleCancelTask, handleChannelTaskQueueCallback, handleRetryFailedTasks, handleDownloadWorkers, handleDownloadWorkersCallback, handleFileConcurrency, handleFileConcurrencyCallback, handleStorageCleanupCallback, handlePathRules, handlePathOnce, handlePathSession, handlePathClear, handlePathRulesCallback, handleDuplicateMode, handleDuplicateModeCallback, handleCleanupSettings, handleCleanupSettingsCallback } from './telegramCommands.js';
 import { handleFileUpload, handleCleanupCallback, pauseDownloadTasks, resumeDownloadTasks, resolveTaskChatIdForControl, refreshSilentProgress, cancelSilentTask, canControlTask, listFailedDownloadTaskDetails, retryFailedDownloadTasks, loadFileDownloadConcurrencySetting } from './telegramUpload.js';
@@ -33,7 +36,7 @@ import {
     retryTelegramBackgroundJob,
     TELEGRAM_COMMENTS_MAX_PER_POST,
 } from './telegramChannelJobs.js';
-import { MSG, buildStartPrompt, buildAuthSuccess, build2FASetupCaption } from '../utils/telegramMessages.js';
+import { buildStartPrompt, buildAuthSuccess, build2FASetupCaption } from '../utils/telegramMessages.js';
 import { query } from '../db/index.js';
 import { getConfiguredTelegramAllowedUsers, addTelegramAllowedUser, countAuthenticatedTelegramUsers, shouldAutoAllowFirstTelegramUser, verifyTelegramPin } from '../utils/authSettings.js';
 import { assertPublicHttpUrl } from '../utils/networkSecurity.js';
@@ -46,7 +49,7 @@ import { buildTelegramSubscriptionPage, buildSubscriptionOperations, parseTelegr
 import { parseDateOnlyStrict, parseTelegramDateRange } from './telegramDateRange.js';
 import { TelegramInteractionStore } from './telegramInteractionState.js';
 import { messageChatKey, callbackChatKey, telegramSubscriptionPeerKey } from '../bot/context.js';
-import { buildSubscriptionDisplayLines, buildSubscriptionManagePanel as buildSubscriptionManagePanelText } from '../bot/presentation/subscription.js';
+import { buildSubscriptionResultSummary, buildSubscriptionDisplayLines, buildSubscriptionManagePanel as buildSubscriptionManagePanelText } from '../bot/presentation/subscription.js';
 import {
     classifyTelegramBotStartupError,
     getTelegramBotStatus,
@@ -402,7 +405,7 @@ function consumeTelegramRateLimit(userId: number, text: string): { limited: bool
 }
 
 function isCancelInput(text: string): boolean {
-    return /^(取消|cancel|退出|stop)$/i.test(text.trim());
+    return /^(取消|cancel|\/cancel|отмена|退出|stop)$/i.test(text.trim());
 }
 
 function buildTelegramWizardPrompt(state: TelegramWizardState, locale: TelegramLocale = DEFAULT_LOCALE): string {
@@ -521,8 +524,25 @@ export function buildLegacyJobProgressPresentation(summary: TelegramJobProgressS
     ].filter(Boolean).join('\n');
 }
 
-async function updateJobProgressMessage(statusMessage: Api.Message, summary: TelegramJobProgressSummary, locale: TelegramLocale = DEFAULT_LOCALE): Promise<void> {
-    await statusMessage.edit({ text: buildLegacyJobProgressPresentation(summary, locale) }).catch(() => undefined);
+async function updateJobProgressMessage(statusMessage: Api.Message, summary: TelegramJobProgressSummary, locale: TelegramLocale = DEFAULT_LOCALE, ownerId?: number): Promise<void> {
+    const chatId = statusMessage.chatId?.toString();
+    if (!chatId || ownerId === undefined || isInteractiveProgressCard(chatId, statusMessage.id)) return;
+    const terminal = ['completed', 'done', 'cancelled', 'failed'].includes(summary.status)
+        || (summary.scanStatus === 'done' && summary.pending === 0 && summary.downloading === 0
+            && summary.completed + summary.failed + summary.skipped >= summary.totalMediaFound);
+    const item = terminal ? null : channelTaskCenterItem({
+        id: summary.jobId, status: summary.status, scan_status: summary.scanStatus,
+        download_status: summary.downloadStatus, source: summary.source,
+        total_count: summary.totalMediaFound, downloading_count: summary.downloading,
+        pending_count: summary.pending, success_count: summary.completed,
+        failed_count: summary.failed, skipped_count: summary.skipped,
+        cooldown_until: summary.cooldownUntil,
+    }, locale);
+    registerProgressCard(chatId, statusMessage.id, ownerId);
+    await statusMessage.edit({
+        text: buildLegacyJobProgressPresentation(summary, locale),
+        buttons: buildProgressControlButtons(item ? [item] : [], locale),
+    }).catch(() => undefined);
 }
 
 async function updateScanStatusMessage(statusMessage: Api.Message, summary: TelegramDownloadScanSummary, locale: TelegramLocale = DEFAULT_LOCALE): Promise<void> {
@@ -695,7 +715,10 @@ async function handleTelegramWizardMessage(message: Api.Message, senderId: numbe
                             `📍 ${sub.source}`,
                             state.customFolder ? t(locale, 'bot.wizard.subscriptionFolderLabel', { folder: state.customFolder, preview: buildPathPreviewLine(state.customFolder, locale) }) : t(locale, 'bot.wizard.subscriptionDefaultLabel'),
                             t(locale, 'bot.wizard.subscriptionStart', { messageId: sub.last_message_id || 0 }),
-                        ].join('\n')
+                        ].join('\n'),
+                        buttons: new Api.ReplyInlineMarkup({ rows: [new Api.KeyboardButtonRow({ buttons: [
+                            new Api.KeyboardButtonCallback({ text: t(locale, 'bot.subscription.backButton'), data: Buffer.from('tsub_page_0') }),
+                        ] })] }),
                     });
                 }
             } catch (error) {
@@ -738,14 +761,14 @@ async function handleTelegramWizardMessage(message: Api.Message, senderId: numbe
                 const queuedMsg = await message.reply({ message: t(locale, 'bot.legacy.confirmTag', { source: state.source, tag: state.tag?.startsWith('#') ? state.tag : `#${state.tag}` }) });
                 await replyWithJobResult(queuedMsg as Api.Message, message, enqueueTelegramTagDownload(client!, message, senderId, state.source!, state.tag!, state.customFolder, {
                     includeComments: Boolean(state.includeComments), commentsMaxPerPost: state.commentsMaxPerPost || TELEGRAM_COMMENTS_MAX_PER_POST,
-                    onScanComplete: summary => updateScanStatusMessage(queuedMsg as Api.Message, summary, locale), onProgress: summary => updateJobProgressMessage(queuedMsg as Api.Message, summary, locale),
+                    onScanComplete: summary => updateScanStatusMessage(queuedMsg as Api.Message, summary, locale), onProgress: summary => updateJobProgressMessage(queuedMsg as Api.Message, summary, locale, senderId),
                     target: state.target,
                 }), 'tag', locale);
             } else {
                 const queuedMsg = await message.reply({ message: t(locale, 'bot.legacy.confirmDate', { source: state.source, startDate: state.startDate, endDate: state.endDate }) });
                 await replyWithJobResult(queuedMsg as Api.Message, message, enqueueTelegramDateDownload(client!, message, senderId, state.source!, state.startDate!, state.endDate!, state.customFolder, {
                     includeComments: Boolean(state.includeComments), commentsMaxPerPost: state.commentsMaxPerPost || TELEGRAM_COMMENTS_MAX_PER_POST,
-                    onScanComplete: summary => updateScanStatusMessage(queuedMsg as Api.Message, summary, locale), onProgress: summary => updateJobProgressMessage(queuedMsg as Api.Message, summary, locale),
+                    onScanComplete: summary => updateScanStatusMessage(queuedMsg as Api.Message, summary, locale), onProgress: summary => updateJobProgressMessage(queuedMsg as Api.Message, summary, locale, senderId),
                     target: state.target,
                 }), 'date', locale);
             }
@@ -1014,7 +1037,7 @@ async function handlePasswordCallback(update: Api.UpdateBotCallbackQuery): Promi
     if (lockSeconds > 0) {
         await client.invoke(new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
-            message: `密码错误次数过多，请 ${lockSeconds} 秒后再试`,
+            message: t(locale, 'bot.auth.pinLocked', { seconds: lockSeconds }),
             alert: true,
         }));
         return;
@@ -1039,7 +1062,7 @@ async function handlePasswordCallback(update: Api.UpdateBotCallbackQuery): Promi
             passwordInputState.delete(userId);
             await client.editMessage(update.peer, {
                 message: update.msgId,
-                text: MSG.AUTH_CANCELLED,
+                text: t(locale, 'auth.cancelled'),
             });
             await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId }));
             return;
@@ -1054,16 +1077,16 @@ async function handlePasswordCallback(update: Api.UpdateBotCallbackQuery): Promi
                         state.password = '';
                         const failure = recordPinFailure(userId);
                         const text = failure.locked
-                            ? `❌ 密码错误次数过多，已临时锁定 ${failure.retryAfterSeconds} 秒。`
-                            : MSG.AUTH_WRONG;
+                            ? t(locale, 'bot.auth.pinLockedBody', { seconds: failure.retryAfterSeconds })
+                            : t(locale, 'auth.wrong');
                         await client.editMessage(update.peer, {
                             message: update.msgId,
                             text,
-                            buttons: generatePasswordKeyboard(0),
+                            buttons: generatePasswordKeyboard(0, locale),
                         });
                         await client.invoke(new Api.messages.SetBotCallbackAnswer({
                             queryId: update.queryId,
-                            message: failure.locked ? '已临时锁定' : '密码错误',
+                            message: t(locale, failure.locked ? 'bot.auth.pinLockedShort' : 'bot.auth.pinWrongShort'),
                             alert: failure.locked,
                         }));
                         return;
@@ -1097,18 +1120,19 @@ async function handlePasswordCallback(update: Api.UpdateBotCallbackQuery): Promi
                         });
                         await client.editMessage(update.peer, {
                             message: update.msgId,
-                            text: MSG.AUTH_2FA_PROMPT,
+                            text: t(locale, 'auth.twoFactorPrompt'),
                         });
-                        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: MSG.AUTH_2FA_TOAST }));
+                        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'auth.twoFactorToast') }));
                         return;
                     }
 
                     await persistAuthenticatedUser(userId);
                     await client.editMessage(update.peer, {
                         message: update.msgId,
-                        text: buildAuthSuccess(),
+                        text: buildAuthSuccess(locale),
+                        buttons: buildBotStartKeyboard(locale),
                     });
-                    await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: MSG.AUTH_SUCCESS }));
+                    await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'auth.success') }));
                     return;
                 }
             }
@@ -1116,8 +1140,8 @@ async function handlePasswordCallback(update: Api.UpdateBotCallbackQuery): Promi
 
         await client.editMessage(update.peer, {
             message: update.msgId,
-            text: MSG.AUTH_INPUT_PROMPT,
-            buttons: generatePasswordKeyboard(state.password.length),
+            text: t(locale, 'auth.inputPrompt'),
+            buttons: generatePasswordKeyboard(state.password.length, locale),
         });
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId }));
     } catch (error) {
@@ -1134,7 +1158,7 @@ async function handleCleanupButtonCallback(update: Api.UpdateBotCallbackQuery, c
     const userId = update.userId.toJSNumber();
     const locale = await getTelegramUserLocaleOrDefault(userId);
     if (!(await isAuthenticatedAsync(userId))) {
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: MSG.AUTH_REQUIRED, alert: true }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'auth.required'), alert: true }));
         return;
     }
 
@@ -1172,7 +1196,7 @@ async function handleUploadReceiptCallback(update: Api.UpdateBotCallbackQuery, d
     const userId = update.userId.toJSNumber();
     const locale = await getTelegramUserLocaleOrDefault(userId);
     if (!(await isAuthenticatedAsync(userId))) {
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: MSG.AUTH_REQUIRED, alert: true }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'auth.required'), alert: true }));
         return;
     }
     const match = data.match(/^receipt_(retry|failures)_([A-Za-z0-9_-]+)$/);
@@ -1202,7 +1226,7 @@ async function handleTaskQueueCallback(update: Api.UpdateBotCallbackQuery, data:
     if (!(await isAuthenticatedAsync(userId))) {
         await client.invoke(new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
-            message: MSG.AUTH_REQUIRED,
+            message: t(locale, 'auth.required'),
             alert: true,
         }));
         return;
@@ -1256,7 +1280,7 @@ async function handleTelegramDownloadModeCallback(update: Api.UpdateBotCallbackQ
     const userId = update.userId.toJSNumber();
     const locale = await getTelegramUserLocaleOrDefault(userId);
     if (!(await isAuthenticatedAsync(userId))) {
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: MSG.AUTH_REQUIRED, alert: true }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'auth.required'), alert: true }));
         return;
     }
     const chatKey = callbackChatKey(update, userId);
@@ -1314,7 +1338,7 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
     const userId = update.userId.toJSNumber();
     const locale = await getTelegramUserLocaleOrDefault(userId);
     if (!(await isAuthenticatedAsync(userId))) {
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: MSG.AUTH_REQUIRED, alert: true }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'auth.required'), alert: true }));
         return;
     }
     const parsed = parseTelegramSubscriptionCallback(data);
@@ -1325,11 +1349,11 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
             message: update.msgId,
             text: buildTelegramWizardPrompt(state, locale),
         });
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '请发送频道' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.sendChannel') }));
         return;
     }
     if (!parsed) {
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '订阅按钮无效或已过期', alert: true }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.subscriptionInvalid'), alert: true }));
         return;
     }
     const rows = await listManageableTelegramSubscriptions(userId);
@@ -1341,14 +1365,14 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
             text: buildSubscriptionManagePanel(rows, page.page, await getTelegramUserLocaleOrDefault(userId)),
             buttons: buildSubscriptionActionKeyboard(rows, page.page, await getTelegramUserLocaleOrDefault(userId)),
         });
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '订阅列表已刷新' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.subscriptionRefreshed') }));
         return;
     }
 
     if (parsed.kind === 'confirm' || parsed.kind === 'back') {
         const pending = getPendingSubscriptionCancel(update, parsed.token, userId);
         if (!pending) {
-            await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '取消确认无效或已过期，请刷新订阅列表', alert: true }));
+            await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.subscriptionConfirmInvalid'), alert: true }));
             return;
         }
         pendingSubscriptionCancels.delete(parsed.token);
@@ -1360,13 +1384,13 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
             await client.editMessage(update.peer, {
                 message: update.msgId,
                 text: [
-                    sub ? `✅ 已取消订阅 ${sub.title || sub.source}` : '❌ 订阅不存在或已经取消',
+                    sub ? `${t(locale, 'bot.callback.subscriptionCancelled')} ${sub.title || sub.source}` : t(locale, 'bot.callback.subscriptionMissing'),
                     '',
                     buildSubscriptionManagePanel(rowsAfterCancel, page.page, locale),
                 ].join('\n'),
                 buttons: buildSubscriptionActionKeyboard(rowsAfterCancel, page.page, locale),
             });
-            await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: sub ? '已取消订阅' : '订阅不存在或已经取消', alert: true }));
+            await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: sub ? t(locale, 'bot.callback.subscriptionCancelled') : t(locale, 'bot.callback.subscriptionMissing'), alert: true }));
             return;
         }
         const page = buildTelegramSubscriptionPage(rows, pending.page);
@@ -1375,36 +1399,38 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
             text: buildSubscriptionManagePanel(rows, page.page, await getTelegramUserLocaleOrDefault(userId)),
             buttons: buildSubscriptionActionKeyboard(rows, page.page, await getTelegramUserLocaleOrDefault(userId)),
         });
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '已返回订阅列表' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.subscriptionBack') }));
         return;
     }
 
     if (parsed.kind !== 'action') {
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '订阅按钮无效或已过期', alert: true }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.subscriptionInvalid'), alert: true }));
         return;
     }
 
     const target = rows.find(row => String(row.id) === parsed.id);
     if (!target) {
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '订阅不存在或已取消', alert: true }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.subscriptionMissing'), alert: true }));
         return;
     }
 
     if (parsed.action === 'sync') {
         await requestTelegramSubscriptionSync(userId, parsed.id);
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '已请求立即同步' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.syncRequested') }));
         return;
     }
     if (parsed.action === 'pause' || parsed.action === 'resume') {
         await setTelegramSubscriptionEnabled(userId, parsed.id, parsed.action === 'resume');
         const refreshed = await listManageableTelegramSubscriptions(userId);
         await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(refreshed, parsed.page, locale), buttons: buildSubscriptionActionKeyboard(refreshed, parsed.page, locale) });
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: parsed.action === 'resume' ? '已恢复订阅' : '已暂停订阅' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: parsed.action === 'resume' ? t(locale, 'bot.callback.subscriptionResumed') : t(locale, 'bot.callback.subscriptionPaused') }));
         return;
     }
     if (parsed.action === 'from_now') {
         await setTelegramSubscriptionFromNow(userId, parsed.id);
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '游标已更新为当前最新消息' }));
+        const refreshed = await listManageableTelegramSubscriptions(userId);
+        await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(refreshed, parsed.page, locale), buttons: buildSubscriptionActionKeyboard(refreshed, parsed.page, locale) });
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.cursorUpdated') }));
         return;
     }
     if (parsed.action === 'target') {
@@ -1414,31 +1440,31 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
             : { mode: 'fixed', provider: storageManager.getActiveTarget().provider.name, accountId: storageManager.getActiveTarget().accountId });
         const refreshed = await listManageableTelegramSubscriptions(userId);
         await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(refreshed, parsed.page, locale), buttons: buildSubscriptionActionKeyboard(refreshed, parsed.page, locale) });
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: current ? '已改为跟随全局' : '已固定为当前目标' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: current ? t(locale, 'bot.callback.followGlobal') : t(locale, 'bot.callback.fixedTarget') }));
         return;
     }
     if (parsed.action === 'result') {
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: target.last_result ? JSON.stringify(target.last_result).slice(0, 180) : '暂无运行结果', alert: true }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: buildSubscriptionResultSummary(target.last_result, locale), alert: true }));
         return;
     }
     if (parsed.action === 'retry') {
         const failed = await query(`SELECT id FROM telegram_background_jobs WHERE kind = 'subscription_sync' AND params->>'subscriptionId' = $1 AND status IN ('failed','completed_with_errors') ORDER BY updated_at DESC LIMIT 1`, [String(target.id)]);
         const retried = failed.rows[0] ? await retryTelegramBackgroundJob(userId, String(failed.rows[0].id), target.chat_id?.toString()) : null;
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: retried ? '已重试最近失败项' : '没有可重试失败项' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: retried ? t(locale, 'bot.callback.retryLatest') : t(locale, 'bot.callback.noRetry') }));
         return;
     }
     if (parsed.action === 'backfill') {
         const state: TelegramWizardState = { kind: 'tg_date', step: 'start_date', source: target.source };
         const sent = await client.sendMessage(update.peer, { message: buildTelegramWizardPrompt(state, locale) });
         putTelegramWizardState(userId, callbackChatKey(update, userId), state, sent.id);
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '请输入补抓开始日期' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.enterBackfillDate') }));
         return;
     }
 
     if (parsed.action === 'view') {
         await client.invoke(new Api.messages.SetBotCallbackAnswer({
             queryId: update.queryId,
-            message: target.folder_override ? `专属目录：${target.folder_override}` : '当前使用默认保存路径',
+            message: target.folder_override ? t(locale, 'bot.callback.currentFolder', { folder: target.folder_override }) : t(locale, 'bot.callback.defaultPath'),
             alert: true,
         }));
         return;
@@ -1455,7 +1481,7 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
         };
         const sent = await client.sendMessage(update.peer, { message: buildTelegramWizardPrompt(state, locale) });
         putTelegramWizardState(userId, callbackChatKey(update, userId), state, sent.id);
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '请发送新的专属目录' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.sendFolder') }));
         return;
     }
 
@@ -1468,13 +1494,13 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
             text: buildSubscriptionManagePanel(rowsAfterClear, page.page, locale),
             buttons: buildSubscriptionActionKeyboard(rowsAfterClear, page.page, locale),
         });
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '已清除专属目录' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.folderCleared') }));
         return;
     }
 
     if (parsed.action === 'cancel') {
         await editSubscriptionCancelConfirmation(update, userId, target, parsed.page);
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: '请确认是否取消订阅' }));
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.confirmUnsubscribe') }));
     }
 }
 
@@ -1593,6 +1619,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 const senderId = message.senderId?.toJSNumber();
                 if (!senderId) return;
+                const messageLocale = await getTelegramUserLocaleOrDefault(senderId);
 
                 // 忽略过旧的消息，防止 Bot 重启时重复处理 pending updates
                 const messageAge = Date.now() / 1000 - message.date;
@@ -1640,13 +1667,13 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                 // 处理 /setup-2fa 命令
                 if (text === '/setup_2fa' || text === '/setup-2fa') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     let tempPath: string | null = null;
                     try {
                         if (await is2FAEnabled()) {
-                            await message.reply({ message: '🔐 双重验证已启用。为保护现有密钥，Bot 不会再次显示二维码。' });
+                            await message.reply({ message: t(messageLocale, 'bot.auth.twoFactorEnabled') });
                             return;
                         }
                         const qrDataUrl = await generateOTPAuthUrl();
@@ -1657,7 +1684,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                         const qrMessage = await client.sendFile(chatId, {
                             file: tempPath,
-                            caption: build2FASetupCaption()
+                            caption: build2FASetupCaption(messageLocale)
                         });
 
                         userStates.set(senderId, {
@@ -1666,7 +1693,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                         });
                     } catch (e) {
                         console.error('生成 2FA 二维码失败:', e);
-                        await client.sendMessage(chatId, { message: MSG.AUTH_2FA_QR_FAIL });
+                        await client.sendMessage(chatId, { message: t(messageLocale, 'auth.twoFactorQrFail') });
                     } finally {
                         if (tempPath && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
                     }
@@ -1680,7 +1707,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/logout') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     try {
@@ -1700,7 +1727,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/tg_sub' || text === '/tg_subscribe') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await startTelegramWizard(message, senderId, 'tg_sub_manage');
@@ -1709,7 +1736,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/tg_download' || text === '/tg_dl') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await startTelegramWizard(message, senderId, 'tg_download');
@@ -1719,7 +1746,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                 // 兼容旧命令，但不再展示在 Telegram 菜单中
                 if (text === '/tg_date') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await startTelegramWizard(message, senderId, 'tg_date');
@@ -1728,7 +1755,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/tg_tag') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await startTelegramWizard(message, senderId, 'tg_tag');
@@ -1774,7 +1801,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/tg_subs' || text === '/tg_subscriptions') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     const rows = await listManageableTelegramSubscriptions(senderId);
@@ -1787,7 +1814,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text.startsWith('/tg_sub ') || text.startsWith('/tg_subscribe ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     const source = text.split(/\s+/).slice(1).join(' ').trim();
@@ -1806,7 +1833,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text.startsWith('/tg_unsub ') || text.startsWith('/tg_unsubscribe ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     const selector = text.split(/\s+/).slice(1).join(' ').trim();
@@ -1825,7 +1852,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text.startsWith('/tg_download ') || text.startsWith('/tg_dl ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     const parts = text.split(/\s+/).slice(1);
@@ -1863,7 +1890,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text.startsWith('/tg_date ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     const parts = text.split(/\s+/).slice(1);
@@ -1883,7 +1910,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text.startsWith('/tg_tag ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     const parts = text.split(/\s+/).slice(1);
@@ -1903,7 +1930,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/storage') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleStorage(message, await getTelegramUserLocaleOrDefault(senderId));
@@ -1912,7 +1939,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/storage_switch' || text === '/switch_storage' || text === '/storage_source') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleStorageSwitch(message);
@@ -1931,7 +1958,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/list' || text.startsWith('/list ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleList(message, text.split(/\s+/).slice(1), await getTelegramUserLocaleOrDefault(senderId));
@@ -1940,7 +1967,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text.startsWith('/delete ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     const args = text.split(' ').slice(1);
@@ -1964,7 +1991,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/tasks' || text === '/task') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleTasks(message, await getTelegramUserLocaleOrDefault(senderId));
@@ -1973,7 +2000,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/task_pause' || text.startsWith('/task_pause ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handlePauseTasks(message, text.split(/\s+/).slice(1));
@@ -1982,7 +2009,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/task_resume' || text.startsWith('/task_resume ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleResumeTasks(message, text.split(/\s+/).slice(1));
@@ -1991,7 +2018,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/task_cancel' || text.startsWith('/task_cancel ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleCancelTask(message, text.split(/\s+/).slice(1));
@@ -2000,7 +2027,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/tg_retry' || text.startsWith('/tg_retry ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleRetryFailedTasks(message, text.split(/\s+/).slice(1));
@@ -2009,7 +2036,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/stop_tasks' || text === '/stop' || text === '/cancel_tasks') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleStopTasks(message);
@@ -2018,7 +2045,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/download_workers' || text === '/workers') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleDownloadWorkers(message);
@@ -2027,7 +2054,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/file_concurrency' || text === '/file_workers' || text === '/download_files') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleFileConcurrency(message);
@@ -2036,7 +2063,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/path_rules' || text === '/path' || text === '/save_rules') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handlePathRules(message, await getTelegramUserLocaleOrDefault(senderId));
@@ -2045,7 +2072,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/pc') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handlePathClear(message);
@@ -2054,7 +2081,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text.startsWith('/p ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handlePathOnce(message, text.split(/\s+/).slice(1));
@@ -2063,7 +2090,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text.startsWith('/ps ')) {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handlePathSession(message, text.split(/\s+/).slice(1));
@@ -2072,7 +2099,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/duplicate_mode' || text === '/duplicate' || text === '/dup') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleDuplicateMode(message);
@@ -2081,7 +2108,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
 
                 if (text === '/cleanup_settings' || text === '/cleanup') {
                     if (!(await isAuthenticatedAsync(senderId))) {
-                        await message.reply({ message: MSG.AUTH_REQUIRED });
+                        await message.reply({ message: t(messageLocale, 'auth.required') });
                         return;
                     }
                     await handleCleanupSettings(message);
@@ -2091,6 +2118,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                 // Handle 2FA Verification (Setup or Login)
                 const userState = userStates.get(senderId);
                 if (userState && (userState.state === TelegramUserState.WAITING_2FA_SETUP || userState.state === TelegramUserState.WAITING_2FA_LOGIN)) {
+                    const locale = await getTelegramUserLocaleOrDefault(senderId);
                     // Try to extract 6 digit code from text (allow spaces or dashes)
                     const cleanText = text.replace(/[\s-]/g, '');
                     if (/^\d{6}$/.test(cleanText)) {
@@ -2100,14 +2128,14 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                             if (userState.state === TelegramUserState.WAITING_2FA_SETUP) {
                                 if (!(await isAuthenticatedAsync(senderId))) {
                                     userStates.delete(senderId);
-                                    await message.reply({ message: MSG.AUTH_REQUIRED });
+                                    await message.reply({ message: t(messageLocale, 'auth.required') });
                                     return;
                                 }
                                 await activate2FA();
-                                await message.reply({ message: MSG.AUTH_2FA_ACTIVATED });
+                                await message.reply({ message: t(locale, 'auth.twoFactorActivated'), buttons: buildBotStartKeyboard(locale) });
                             } else {
                                 await persistAuthenticatedUser(senderId);
-                                await message.reply({ message: MSG.AUTH_2FA_LOGIN_OK });
+                                await message.reply({ message: t(locale, 'auth.twoFactorLoginOk'), buttons: buildBotStartKeyboard(locale) });
                             }
 
                             // Clean up sensitive messages
@@ -2124,7 +2152,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                             userStates.delete(senderId);
                             return;
                         } else {
-                            const errorMsg = await message.reply({ message: MSG.AUTH_2FA_WRONG });
+                            const errorMsg = await message.reply({ message: t(locale, 'auth.twoFactorWrong') });
 
                             // Delete invalid code message and error message potentially? 
                             // Let's at least delete user message
@@ -2143,7 +2171,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                 }
                 // Unauthenticated User Text
                 if (!(await isAuthenticatedAsync(senderId)) && text && !text.startsWith('/')) {
-                    await message.reply({ message: MSG.UNKNOWN_TEXT });
+                    await message.reply({ message: t(messageLocale, 'common.unknownText') });
                 }
             } catch (error) {
                 console.error('🤖 处理消息时发生意外错误:', error);
@@ -2390,7 +2418,7 @@ export async function sendUpdateNotificationToUser(userId: number, message: stri
 }
 
 // 发送安全通知给所有已认证用户
-export async function sendSecurityNotification(message: string): Promise<void> {
+export async function sendSecurityNotification(message: TelegramLoginDetails | string): Promise<void> {
     if (!client || !client.connected) {
         console.warn('⚠️ Telegram Client 未连接，无法发送安全通知');
         return;
@@ -2402,7 +2430,7 @@ export async function sendSecurityNotification(message: string): Promise<void> {
     for (const userId of recipients) {
         try {
             const locale = await getTelegramUserLocaleOrDefault(userId);
-            await client.sendMessage(userId, { message: t(locale, 'bot.notification.securityLogin', { message }) });
+            await client.sendMessage(userId, { message: buildSecurityLoginNotification(message, locale) });
         } catch (e) {
             console.error(`🤖 向用户 ${userId} 发送通知失败:`, e);
         }

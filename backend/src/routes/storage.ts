@@ -60,6 +60,13 @@ const checkDiskSpace = (checkDiskSpaceModule as any).default || checkDiskSpaceMo
 
 const router = Router();
 
+import { localStorageLocation } from '../services/localStorageLocation.js';
+
+router.get('/local-location', requireAuth, async (_req: Request, res: Response) => {
+    noStore(res);
+    res.json(await localStorageLocation());
+});
+
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './data/uploads';
 
 const telegramPinChangeLimiter = rateLimit({

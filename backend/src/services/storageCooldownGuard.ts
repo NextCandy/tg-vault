@@ -19,7 +19,7 @@ export function formatStorageCooldownNotice(cooldownUntil: Date): string {
     return [
         '⏸️ Google Drive 今日上传额度已达上限',
         '',
-        '当前任务已自动暂停，剩余文件不会丢失；无需点击“继续”。',
+        '任务已暂停，无需手动继续。',
         describeStorageCooldownRecovery(cooldownUntil),
         '',
         `恢复时间：${cooldownUntil.toISOString()}`,

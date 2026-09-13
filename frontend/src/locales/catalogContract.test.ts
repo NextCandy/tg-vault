@@ -51,7 +51,7 @@ test('all literal translation references resolve in every composed catalog', asy
   });
   const references = new Set<string>();
   for (const file of sourceFiles(sourceRoot)) {
-    for (const match of fs.readFileSync(file, 'utf8').matchAll(/\bt\(\s*['"]([^'"]+)['"]/g)) references.add(match[1]);
+    for (const match of fs.readFileSync(file, 'utf8').matchAll(/\b(?:t|tr)\(\s*['"]([^'"]+)['"]/g)) references.add(match[1]);
   }
   for (const key of references) {
     for (let index = 0; index < catalogs.length; index += 1) {

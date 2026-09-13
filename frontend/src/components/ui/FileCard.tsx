@@ -104,7 +104,7 @@ export const FileCard = ({
             case 'google_drive':
                 return { Icon: Database, label: 'Google Drive' };
             default:
-                return { Icon: HardDrive, label: 'Local' };
+                return { Icon: HardDrive, label: t('appCopy.localStorage') };
         }
     };
 

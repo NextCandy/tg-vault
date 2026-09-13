@@ -55,6 +55,8 @@ import {
 } from './telegramWriteReconciliation.js';
 import { getTelegramUserLocaleOrDefault } from './telegramLocalePreferences.js';
 import { DEFAULT_LOCALE, formatBytes as formatLocalizedBytes, t, type TelegramLocale } from '../i18n/telegram.js';
+import { ordinaryTaskCenterItem, type TaskCenterItem } from './telegramTaskCenter.js';
+import { buildProgressControlButtons, registerProgressCard, isInteractiveProgressCard, taskCenterCardOwners, taskCenterCardKey } from './telegramProgressControls.js';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './data/uploads';
 const DEFAULT_TELEGRAM_DOWNLOAD_WORKERS = Math.max(1, Math.min(16, parseInt(process.env.TELEGRAM_DOWNLOAD_WORKERS || '4', 10) || 4));
@@ -340,6 +342,7 @@ function shouldRefreshLargeTaskStatus(lastStatusRefresh: number, completed: numb
  * 安全编辑消息，捕获 FloodWaitError 并更新全局冷却状态
  */
 async function safeEditMessage(client: TelegramClient, chatId: Api.TypeEntityLike, params: any) {
+    if (isInteractiveProgressCard(chatId.toString(), Number(params.message))) return null;
     if (Date.now() < floodWaitUntil) {
         console.warn(`[Telegram] ⏳ 跳过编辑消息：仍在 FloodWait 冷却中 chat=${chatId.toString()} msg=${params?.message}`);
         return null;
@@ -767,6 +770,10 @@ async function deleteLastStatusMessage(client: TelegramClient, chatId: Api.TypeE
     if (!chatId) return;
     const chatIdStr = chatId.toString();
     const lastMsgId = lastStatusMessageIdMap.get(chatIdStr);
+    if (lastMsgId && isInteractiveProgressCard(chatIdStr, lastMsgId)) {
+        lastStatusMessageIdMap.delete(chatIdStr);
+        return;
+    }
     if (lastMsgId) {
         if (process.env.TG_STATUS_DEBUG === '1') {
             const isSilent = silentSessionMap.has(chatIdStr);
@@ -803,6 +810,8 @@ interface ActiveUploadEntry {
     phase: ConsolidatedUploadFile['phase'];
     downloaded?: number;
     total?: number;
+    groupId?: string;
+    speedBytesPerSecond?: number;
     size?: number;
     error?: string;
     providerName?: string;
@@ -1088,6 +1097,16 @@ async function checkAndResetSession(client: TelegramClient, chatId: Api.TypeEnti
     }
 }
 
+/** Refresh the existing live tracker after an authenticated resume callback. */
+export async function refreshDownloadProgress(client: TelegramClient, chatId: Api.TypeEntityLike, userId: number) {
+    const key = chatId.toString();
+    const messageId = lastStatusMessageIdMap.get(key);
+    const owner = messageId ? taskCenterCardOwners.get(taskCenterCardKey(key, messageId)) : undefined;
+    if (owner?.userId !== userId) return;
+    if (silentSessionMap.has(key)) await refreshSilentProgress(client, chatId, userId);
+    else await refreshConsolidatedMessage(client, chatId);
+}
+
 /** 更新合并状态消息 */
 async function refreshConsolidatedMessage(client: TelegramClient, chatId: Api.TypeEntityLike, replyTo?: Api.Message) {
     const chatIdStr = chatId.toString();
@@ -1111,20 +1130,27 @@ async function refreshConsolidatedMessage(client: TelegramClient, chatId: Api.Ty
 
     const text = await buildConsolidatedStatus(files, batches);
     const existingMsgId = lastStatusMessageIdMap.get(chatIdStr);
+    const ownerId = replyTo?.senderId?.toJSNumber()
+        ?? (existingMsgId ? taskCenterCardOwners.get(taskCenterCardKey(chatIdStr, existingMsgId))?.userId : undefined);
+    const items = ownerId === undefined ? [] : listDownloadTaskGroups(chatIdStr, ownerId)
+        .map(ordinaryTaskCenterItem).filter((item): item is TaskCenterItem => Boolean(item));
+    const locale = ownerId === undefined ? DEFAULT_LOCALE : await getTelegramUserLocaleOrDefault(ownerId);
+    const buttons = buildProgressControlButtons(items, locale);
 
     // 新任务触发（有 replyTo）：强制删除旧追踪器，并发送一条新的追踪器消息
     if (replyTo) {
         await deleteLastStatusMessage(client, chatId);
-        const msg = await safeReply(replyTo, { message: text }) as Api.Message;
+        const msg = await safeReply(replyTo, { message: text, buttons }) as Api.Message;
         if (msg) {
             updateLastStatusMessageId(chatId, msg.id, false);
+            if (ownerId !== undefined) registerProgressCard(chatIdStr, msg.id, ownerId);
         }
         return;
     }
 
     // 进度更新触发（无 replyTo）：编辑现有追踪器
-    if (existingMsgId) {
-        await safeEditMessage(client, chatId, { message: existingMsgId, text });
+    if (existingMsgId && !isInteractiveProgressCard(chatIdStr, existingMsgId)) {
+        await safeEditMessage(client, chatId, { message: existingMsgId, text, buttons });
     }
 }
 
@@ -1876,13 +1902,17 @@ async function processFileUpload(
             // 不再单独更新 msg，由外部轮询或回调处理
             // if (queue && queue.statusMsgId && queue.chatId) ...
 
+            if (taskId) downloadQueue.resetProgress(taskId);
             const firstAttemptSuccess = await attemptUpload(signal, reportProgress);
+            if (taskId) downloadQueue.stopProgress(taskId);
 
             if (!firstAttemptSuccess && !signal.aborted && !file.retried && !file.storageCooldownUntil) {
                 file.retried = true;
                 file.status = 'uploading'; // 保持 uploading 状态供外部显示
                 file.error = undefined;
+                if (taskId) downloadQueue.resetProgress(taskId);
                 const secondAttemptSuccess = await attemptUpload(signal, reportProgress);
+                if (taskId) downloadQueue.stopProgress(taskId);
                 if (!secondAttemptSuccess) {
                     file.status = 'failed';
                 }
@@ -2784,9 +2814,13 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
                     await deleteLastStatusMessage(client, chatId);
                     statusMsg = await safeReply(message, {
                         message: buildDownloadProgress(finalFileName, 0, totalSize, typeEmoji, undefined, locale),
+                        buttons: buildProgressControlButtons(listDownloadTaskGroups(chatIdStr, senderId)
+                            .filter(group => group.id === singleGroupId)
+                            .map(ordinaryTaskCenterItem).filter((item): item is TaskCenterItem => Boolean(item)), locale),
                     }) as Api.Message;
                     if (statusMsg) {
                         updateLastStatusMessageId(chatId, statusMsg.id, false);
+                        registerProgressCard(chatIdStr, statusMsg.id, senderId);
                     }
                 }
             });
@@ -2797,7 +2831,10 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
             await runStatusAction(chatId, async () => {
                 await safeEditMessage(client, chatId, {
                     message: statusMsg!.id,
-                    text: buildQueuedMessage(finalFileName, stats.pending, locale)
+                    text: buildQueuedMessage(finalFileName, stats.pending, locale),
+                    buttons: buildProgressControlButtons(listDownloadTaskGroups(chatIdStr, senderId)
+                        .filter(group => group.id === singleGroupId)
+                        .map(ordinaryTaskCenterItem).filter((item): item is TaskCenterItem => Boolean(item)), locale),
                 });
             });
         }
@@ -2808,7 +2845,11 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
             if (now - lastUpdateTime < 3000) return;
             lastUpdateTime = now;
 
-            updateUploadPhase(chatIdStr, uploadId, { phase: 'downloading', downloaded, total });
+            const telemetry = downloadQueue.getGroup(singleGroupId);
+            downloaded = telemetry?.completedBytes ?? downloaded;
+            total = telemetry?.totalBytes ?? total;
+            const speed = telemetry?.speedBytesPerSecond || 0;
+            updateUploadPhase(chatIdStr, uploadId, { phase: 'downloading', downloaded, total, groupId: singleGroupId, speedBytesPerSecond: speed });
 
             if (silentSessionMap.has(chatIdStr)) {
                 await runStatusAction(chatId, async () => {
@@ -2825,7 +2866,10 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
                 await runStatusAction(chatId, async () => {
                     await safeEditMessage(client, chatId, {
                         message: statusMsg!.id,
-                        text: buildDownloadProgress(finalFileName, downloaded, total, typeEmoji, undefined, locale),
+                        text: buildDownloadProgress(finalFileName, downloaded, total, typeEmoji, undefined, locale, speed),
+                        buttons: buildProgressControlButtons(listDownloadTaskGroups(chatIdStr, senderId)
+                            .filter(group => group.id === singleGroupId)
+                            .map(ordinaryTaskCenterItem).filter((item): item is TaskCenterItem => Boolean(item)), locale),
                     });
                 });
             }
@@ -2888,7 +2932,7 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
                         rememberTransferDestination(chatIdStr, storageFolder, provider.name);
                         if (statusMsg && !silentSessionMap.has(chatIdStr)) {
                             await runStatusAction(chatId, async () => {
-                                await client.editMessage(chatId, {
+                                await safeEditMessage(client, chatId, {
                                     message: statusMsg!.id,
                                     text: buildDuplicateSkipped(finalFileName, storageFolder, duplicate.id, locale),
                                 });
@@ -2975,7 +3019,7 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
                     });
                 } else if (statusMsg && !silentSessionMap.has(chatIdStr)) {
                     await runStatusAction(chatId, async () => {
-                        await client.editMessage(chatId, {
+                        await safeEditMessage(client, chatId, {
                             message: statusMsg!.id,
                             text: buildUploadSuccess(finalFileName, actualSize, fileType, provider.name, storageFolder, indexedFileId, duplicateMode === 'copy' ? 'copied' : null, locale),
                         });
@@ -3003,7 +3047,9 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
                 if (taskId) downloadQueue.updateProgress(taskId, downloaded, total);
                 void onProgress(downloaded, total);
             };
+            if (taskId) downloadQueue.resetProgress(taskId);
             let success = await attemptSingleUpload(signal, reportQueueProgress);
+            if (taskId) downloadQueue.stopProgress(taskId);
             if (!success && !signal.aborted && !storageCooldownUntil && retryCount < maxRetries) {
                 retryCount++;
                 if (lastLocalPath && fs.existsSync(lastLocalPath)) {
@@ -3022,9 +3068,12 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
                     });
                 } else if (statusMsg && !silentSessionMap.has(chatIdStr)) {
                     await runStatusAction(chatId, async () => {
-                        await client.editMessage(chatId, {
+                        await safeEditMessage(client, chatId, {
                             message: statusMsg!.id,
                             text: buildRetryMessage(finalFileName, typeEmoji, locale),
+                            buttons: buildProgressControlButtons(listDownloadTaskGroups(chatIdStr, senderId)
+                                .filter(group => group.id === singleGroupId)
+                                .map(ordinaryTaskCenterItem).filter((item): item is TaskCenterItem => Boolean(item)), locale),
                         });
                     });
                 }
@@ -3039,7 +3088,9 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
                     async () => {
                         storageCooldownUntil = undefined;
                         lastError = undefined;
+                        if (taskId) downloadQueue.resetProgress(taskId);
                         success = await attemptSingleUpload(signal, reportQueueProgress);
+                        if (taskId) downloadQueue.stopProgress(taskId);
                         return storageCooldownUntil;
                     },
                     async (retryAt) => {
@@ -3056,7 +3107,7 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
                 updateUploadPhase(chatIdStr, uploadId, { phase: 'failed', error: lastError });
                 if (statusMsg && !silentSessionMap.has(chatIdStr)) {
                     await runStatusAction(chatId, async () => {
-                        await client.editMessage(chatId, {
+                        await safeEditMessage(client, chatId, {
                             message: statusMsg!.id,
                             text: buildUploadFail(finalFileName, lastError!, locale)
                         }).catch(() => { });
@@ -3077,7 +3128,7 @@ export async function handleFileUpload(client: TelegramClient, event: NewMessage
                     });
                 } else if (statusMsg && !silentSessionMap.has(chatIdStr)) {
                     await runStatusAction(chatId, async () => {
-                        await client.editMessage(chatId, {
+                        await safeEditMessage(client, chatId, {
                             message: statusMsg!.id,
                             text: buildUploadFail(finalFileName, lastError || t(locale, 'upload.error.unknown'), locale)
                         }).catch(() => { });

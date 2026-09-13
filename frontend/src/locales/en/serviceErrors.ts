@@ -14,11 +14,11 @@ export const serviceErrors = {
     activateTwoFactorFailed: 'Could not enable two-factor authentication', disableTwoFactorFailed: 'Could not disable two-factor authentication',
   },
   upload: {
-    capabilitiesFailed: 'Could not load upload capabilities', tooLarge: 'The file exceeds the server upload limit of {{size}} GiB',
+    capabilitiesFailed: "Could not load upload limits", tooLarge: 'The file exceeds the server upload limit of {{size}} GiB',
     incompleteFailed: 'Could not load incomplete uploads', sessionUnavailable: 'This upload session is complete, cancelled, or expired. Refresh the task list.',
     resumeNameOrSizeMismatch: 'The selected file name or size does not match the original upload', resumeSizeMismatch: 'The selected file size does not match the original upload',
     resumeTypeMismatch: 'The selected file type does not match the original upload', resumeContentMismatch: 'The selected file contents do not match the original upload',
-    resumeIdentityMissing: 'The upload session is missing identity data for received chunks. Cancel it and upload the file again.',
+    resumeIdentityMissing: "Uploaded chunks cannot be verified. Cancel this upload and start again.",
     completing: 'The server is finishing this upload. Refresh in a moment.', cancelFailed: 'Could not cancel the upload', reopenFailed: 'The server could not reopen this upload session',
     initFailed: 'Could not initialize the chunked upload', initInvalid: 'The chunked upload initialization response is invalid',
     chunkFailed: 'Could not upload chunk {{current}} of {{total}}', completeFailed: 'Could not complete the chunked upload',
@@ -28,7 +28,7 @@ export const serviceErrors = {
   },
   storage: {
     connectionTimeout: '{{provider}} connection test timed out. Check the server address and network connection.', addAccountFailed: 'Could not add the {{provider}} account',
-    unsupportedProvider: 'Unsupported upload storage type: {{provider}}', authorizationNotSynchronized: 'Authorization returned, but the backend has not switched to the new storage account yet',
+    unsupportedProvider: 'Unsupported upload storage type: {{provider}}', authorizationNotSynchronized: "Authorization completed, but the new storage account is not active yet",
     local: 'Local storage', localDirectory: 'Server local directory', currentAccount: 'Current account', root: 'Root directory',
     getStatsFailed: 'Could not load storage statistics', getConfigFailed: 'Could not load the storage configuration', updateConfigFailed: 'Could not update the configuration',
     switchFailed: 'Could not switch storage', getAccountsFailed: 'Could not load the account list', probeFailed: 'The storage account connection test failed',
@@ -44,6 +44,7 @@ export const serviceErrors = {
     toggleFavoriteFailed: 'Could not update the favorite status', toggleFolderFavoriteFailed: 'Could not update the folder favorite status',
   },
   tasks: {
+    getListFailed: 'Could not load tasks', cancelConfirmationFailed: 'Could not confirm task cancellation. Try again.',
     operationFailed: 'The task operation failed', dismissalPreviewFailed: 'Could not prepare the task deletion preview', deleteRecordFailed: 'Could not delete the task record',
     getAdvancedSettingsFailed: 'Could not load advanced task settings', updateAdvancedSettingsFailed: 'Could not update advanced task settings', cleanupDownloadsFailed: 'Could not clean up download task details',
   },

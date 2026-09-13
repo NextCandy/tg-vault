@@ -23,7 +23,8 @@ async function main() {
     const notice = formatStorageCooldownNotice(cooldownUntil);
     assert.match(notice, /Google Drive 今日上传额度已达上限/);
     assert.match(notice, /2030-01-02T03:04:05.000Z/);
-    assert.match(notice, /剩余文件不会丢失/);
+    assert.match(notice, /任务已暂停/);
+    assert.doesNotMatch(notice, /不会丢失/);
     assert.match(notice, /重新检查/);
     assert.match(notice, /限制已解除，将自动继续/);
     assert.match(notice, /否则会更新冷却时间/);

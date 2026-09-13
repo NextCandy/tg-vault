@@ -18,15 +18,17 @@ DATA_FILE="$DEST/file-storage.tar.gz"
 BACKEND_WAS_RUNNING=false
 BACKEND_CONTAINER=$(docker compose ps -q backend 2>/dev/null || true)
 VOLUME_NAME=''
-if [[ -n "$BACKEND_CONTAINER" ]]; then
-  VOLUME_NAME=$(docker inspect --format='{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$BACKEND_CONTAINER" 2>/dev/null || true)
-  BACKEND_WAS_RUNNING=true
-fi
-VOLUME_NAME=${VOLUME_NAME:-${COMPOSE_PROJECT_NAME:-tg-vault}_file-storage}
+# --all includes a stopped backend. Never guess a named volume: that can
+# silently create an empty archive when the installation uses a bind mount.
+BACKEND_CONTAINER=$(docker compose ps --all -q backend)
+[[ -n "$BACKEND_CONTAINER" ]] || { echo '无法确认文件挂载：请先恢复原 backend 容器配置。' >&2; exit 1; }
+VOLUME_NAME=$(docker inspect --format='{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$BACKEND_CONTAINER")
+[[ -n "$VOLUME_NAME" ]] || { echo 'backend 缺少 /data 挂载。' >&2; exit 1; }
+BACKEND_WAS_RUNNING=$(docker inspect --format='{{.State.Running}}' "$BACKEND_CONTAINER")
 
 # Fail before the maintenance window if the destination cannot hold an uncompressed
 # upper bound of the data volume plus the database dump and safety reserve.
-VOLUME_BYTES=$(docker run --rm -v "$VOLUME_NAME:/data:ro" alpine:3.20 sh -c 'du -sb /data | cut -f1' | tail -1 | cut -f1 | tr -d ' ')
+VOLUME_BYTES=$(docker run --rm --volumes-from "$BACKEND_CONTAINER:ro" alpine:3.20 sh -c 'du -sb /data | cut -f1' | tail -1 | cut -f1 | tr -d ' ')
 DATABASE_BYTES=$(docker compose exec -T postgres psql -U tgvault -d tgvault -Atqc 'SELECT pg_database_size(current_database())' | tail -1 | tr -d ' ')
 AVAILABLE_BYTES=${BACKUP_AVAILABLE_BYTES_OVERRIDE:-$(df --output=avail -B1 "$DEST" | tail -1 | tr -d ' ')}
 MIN_FREE_BYTES=${BACKUP_MIN_FREE_BYTES:-536870912}
@@ -57,13 +59,13 @@ trap 'abort_backup INT' INT
 trap 'abort_backup TERM' TERM
 
 if [[ "$BACKEND_WAS_RUNNING" == true ]]; then
-  echo "进入备份维护窗口：停止 backend，阻止上传、删除和后台任务跨越快照边界。"
+  echo "停止 backend 以保持数据库和文件备份一致；备份期间 API、上传和后台任务暂停。"
   docker compose stop -t "${BACKUP_BACKEND_STOP_TIMEOUT:-35}" backend
 fi
 
 docker compose exec -T postgres pg_dump -U tgvault -d tgvault -Fc > "$DB_FILE"
 docker run --rm \
-  -v "$VOLUME_NAME:/data:ro" \
+  --volumes-from "$BACKEND_CONTAINER:ro" \
   -v "$(realpath "$DEST"):/backup" \
   alpine:3.20 sh -c 'tar -C /data -czf /backup/file-storage.tar.gz .'
 
@@ -84,5 +86,5 @@ restart_backend
 trap - EXIT INT TERM
 
 echo "备份已创建：$DEST"
-echo "一致性策略：backend-stopped（DB dump 与 /data 归档期间无应用写入）。"
-echo "该目录包含数据库与密钥材料，请加密并复制到异地存储。"
+echo "一致性：backend-stopped（数据库和 /data 归档期间无应用写入）。"
+echo "备份含数据库与密钥，请加密并异地保存；.env 不在归档内，需另行备份。"

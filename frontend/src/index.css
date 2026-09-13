@@ -134,6 +134,12 @@
     font-variant-caps: normal !important;
   }
 
+  /* Settings tabs deliberately stay on one horizontally scrollable row. */
+  html[lang="ru"] [data-testid="settings-tabs"] button,
+  html[lang^="ru-"] [data-testid="settings-tabs"] button {
+    white-space: nowrap !important;
+  }
+
   /* Russian labels are wider than English labels. On phones, stack action
    * controls instead of squeezing translated copy beside a button. */
   @media (max-width: 640px) {

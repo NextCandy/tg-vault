@@ -1,4 +1,5 @@
 import { query } from '../db/index.js';
+import { downloadProgressView } from './downloadProgress.js';
 import type { DownloadTaskGroupSnapshot } from './downloadTaskQueue.js';
 
 export type TransferTaskSource = 'telegram_bot';
@@ -278,6 +279,7 @@ export async function persistOrdinaryTransferTask(group: DownloadTaskGroupSnapsh
     const finished = group.completed + group.failed + group.cancelled;
     const total = Math.max(group.total, finished);
     const terminal = ['completed', 'failed', 'cancelled'].includes(status);
+    const bytes = downloadProgressView(group, status === 'running', total > 0 ? Math.min(100, (finished / total) * 100) : 0);
     await query(
         `INSERT INTO transfer_tasks
          (source_type, id, kind, title, status, stage, progress, owner_user_id, chat_id, source,
@@ -298,11 +300,11 @@ export async function persistOrdinaryTransferTask(group: DownloadTaskGroupSnapsh
            AND transfer_tasks.status NOT IN ('completed','failed','cancelled')`,
         [group.id, group.kind, group.title, status,
             status === 'running' ? 'downloading' : status === 'pending' ? 'waiting' : status,
-            total > 0 ? Math.min(100, (finished / total) * 100) : 0,
+            bytes.percent,
             group.userId ?? null, group.chatId || null, group.source || null,
             group.targetProvider || null, group.targetAccountId ?? null, group.targetFolder || null,
             total, group.completed, group.failed,
-            JSON.stringify({ groupId: group.id, active: group.active, pending: group.pending,
+            JSON.stringify({ ...group, ...bytes, groupId: group.id, active: group.active, pending: group.pending,
                 cancelled: group.cancelled, currentFileName: group.currentFileName || null }),
             group.reason || (group.failed > 0 ? `${group.failed} 个文件处理失败` : null),
             status === 'failed', status === 'cancelled',

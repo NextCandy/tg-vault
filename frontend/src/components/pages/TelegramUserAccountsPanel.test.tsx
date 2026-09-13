@@ -60,6 +60,21 @@ after(() => {
     }
 });
 
+test('account scheduling explanation uses each selected locale, not API prose', async () => {
+    fileApi.getTelegramUserAccounts = async () => ({
+        ...overview,
+        scheduling: { strategy: 'weighted_least_connections', description: 'INTERNAL_SCHEDULER_COPY' },
+    });
+    for (const language of ['zh-CN', 'en', 'ru']) {
+        await i18n.changeLanguage(language);
+        render(<TelegramUserAccountsPanel configured onNotice={() => undefined} requestConfirmation={async () => true} />);
+        await screen.findByText('归档账号');
+        assert.ok(screen.getByText(i18n.t('management.telegramAccounts.scheduling.description')));
+        assert.equal(document.body.textContent?.includes('INTERNAL_SCHEDULER_COPY'), false);
+        cleanup();
+    }
+});
+
 test('renders account health, permission totals and opens a QR-only secret view', async () => {
     await i18n.changeLanguage('zh-CN');
     fileApi.getTelegramUserAccounts = async () => overview;

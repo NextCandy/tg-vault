@@ -6,7 +6,7 @@ import { requireAuth, getAuthToken } from './auth.js';
 import { webDestructiveConfirmationStore } from '../services/webDestructiveConfirmation.js';
 import { listTransferTasks, getTransferTask, updateTransferTask } from '../services/transferTasks.js';
 
-import { cancelDownloadTaskGroup, retryFailedDownloadTasks, cancelChannelExecutionGroup } from '../services/telegramUpload.js';
+import { getDownloadTaskGroup, cancelDownloadTaskGroup, retryFailedDownloadTasks, cancelChannelExecutionGroup } from '../services/telegramUpload.js';
 import { cancelTelegramBackgroundJob, retryTelegramBackgroundJob } from '../services/telegramChannelJobs.js';
 import { filterDismissedTasks, isTaskDismissible, loadTaskCenterDismissals, saveTaskCenterDismissals } from '../services/taskCenterDismissals.js';
 import { mapTelegramChannelJob, mapTransferTask } from '../services/unifiedTaskMapper.js';
@@ -58,7 +58,7 @@ async function collectUnifiedTasks(limit: number, accountId?: string): Promise<a
             query('SELECT id, name FROM storage_accounts'),
         ]);
         const accountNames = new Map(accounts.rows.map(row => [String(row.id), String(row.name)]));
-        const tasks: any[] = transfers.map(task => mapTransferTask(task, accountNames));
+        const tasks: any[] = transfers.map(task => mapTransferTask(task, accountNames, task.sourceType === 'telegram_bot' ? getDownloadTaskGroup(task.id) || undefined : undefined));
         for (const row of channels.rows) tasks.push(mapTelegramChannelJob(row, accountNames));
         for (const row of chunks.rows) {
             const total = Number(row.total_size || 0);

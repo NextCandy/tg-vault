@@ -20,7 +20,7 @@ test('task center supports single, multi-select, and filter-scoped cleanup', () 
     for (const key of ['tasks.selection.enter', 'tasks.selection.selectAll', 'tasks.actions.cleanTerminal', 'tasks.actions.deleteRecord', 'tasks.dialogs.dismissDescription']) {
         assert.ok(page.includes(key), key);
     }
-    for (const copy of ['选择任务', '全选可删除', '清理终态记录', '删除记录', '不会删除任何文件']) {
+    for (const copy of ['选择任务', '全选可删除', '清理已结束记录', '删除记录', '不删除文件']) {
         assert.match(zh, new RegExp(copy));
     }
     assert.match(page, /task\.dismissible/);

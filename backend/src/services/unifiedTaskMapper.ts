@@ -1,3 +1,5 @@
+import { downloadProgressView } from './downloadProgress.js';
+import type { DownloadTaskGroupSnapshot } from './downloadTaskQueue.js';
 import type { TransferTaskRecord } from './transferTasks.js';
 
 export type UnifiedTaskSourceType = 'telegram_bot' | 'telegram_channel' | 'web_upload' | 'subscription' | 'telegram_target';
@@ -10,6 +12,8 @@ export interface UnifiedTask {
     status: string;
     stage: string;
     progress: number;
+    downloadProgress?: ReturnType<typeof downloadProgressView>;
+    speedBytesPerSecond?: number;
     ownerUserId: number | null;
     chatId: string | null;
     source: string | null;
@@ -116,7 +120,9 @@ export function mapTelegramChannelJob(row: any, accountNames: ReadonlyMap<string
     };
 }
 
-export function mapTransferTask(task: TransferTaskRecord, accountNames: ReadonlyMap<string, string>): UnifiedTask {
+export function mapTransferTask(task: TransferTaskRecord, accountNames: ReadonlyMap<string, string>, live?: DownloadTaskGroupSnapshot): UnifiedTask {
+    const telemetry = downloadProgressView(live || { totalBytes: task.totalBytes, completedBytes: task.transferredBytes, ...task.payload }, live ? ['running', 'pausing'].includes(live.state) : task.status === 'running', task.progress);
+    const telegram = task.sourceType === 'telegram_bot';
     return {
         id: task.id,
         sourceType: task.sourceType,
@@ -124,7 +130,8 @@ export function mapTransferTask(task: TransferTaskRecord, accountNames: Readonly
         title: task.title,
         status: task.status,
         stage: task.stage,
-        progress: task.progress,
+        progress: telegram ? telemetry.percent : task.progress,
+        ...(telegram ? { downloadProgress: telemetry, speedBytesPerSecond: telemetry.speedBytesPerSecond } : {}),
         ownerUserId: task.ownerUserId,
         chatId: task.chatId,
         source: task.source,
@@ -135,8 +142,8 @@ export function mapTransferTask(task: TransferTaskRecord, accountNames: Readonly
             folder: task.targetFolder,
         },
         counts: { total: task.totalItems, completed: task.completedItems, failed: task.failedItems },
-        bytes: { total: task.totalBytes, transferred: task.transferredBytes },
-        detail: task.payload,
+        bytes: telegram ? { total: telemetry.totalBytes, transferred: telemetry.completedBytes } : { total: task.totalBytes, transferred: task.transferredBytes },
+        detail: telegram ? { ...task.payload, speedBytesPerSecond: telemetry.speedBytesPerSecond } : task.payload,
         error: task.error,
         retryable: task.retryable,
         cancellable: ['pending', 'running', 'paused'].includes(task.status) || task.retryable,

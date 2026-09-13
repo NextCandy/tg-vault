@@ -1657,7 +1657,7 @@ function App() {
                                       <div className="flex items-center gap-2">
                                         <p className="text-xs text-muted-foreground">{file.date}</p>
                                         <span className="text-[10px] text-muted-foreground/60">•</span>
-                                        {(() => { const provider = getProviderMetadata(file.source); const ProviderIcon = provider.icon; return <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60"><ProviderIcon className="h-2.5 w-2.5" /><span>{provider.label}</span></div>; })()}
+                                        {(() => { const provider = getProviderMetadata(file.source); const ProviderIcon = provider.icon; return <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60"><ProviderIcon className="h-2.5 w-2.5" /><span>{provider.id === 'local' ? t('appCopy.localStorage') : provider.label}</span></div>; })()}
                                       </div>
                                     </div>
                                     <div className="text-sm font-medium tabular-nums text-muted-foreground px-4">{file.size}</div>

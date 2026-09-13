@@ -30,7 +30,7 @@ test('multi-account rows keep mobile actions readable and disabled state is not 
     assert.match(panel, /account\.enabled\s*\?/);
     assert.match(panel, /t\('management\.telegramAccounts\.account\.disabledHint'\)/);
     assert.match(zh.management.telegramAccounts.account.disabledHint, /已停用/);
-    assert.match(en.management.telegramAccounts.account.disabledHint, /Disabled accounts/);
+    assert.match(en.management.telegramAccounts.account.disabledHint, /Disabled: no new downloads/);
 });
 
 test('frontend exposes account status, retaining disable and destructive account deletion without account secret fields', () => {

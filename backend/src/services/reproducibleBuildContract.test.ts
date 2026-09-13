@@ -9,6 +9,7 @@ const workflow = fs.readFileSync(new URL('../../../.github/workflows/docker-publ
 const backendPackage = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
 const frontendPackage = JSON.parse(fs.readFileSync(new URL('../../../frontend/package.json', import.meta.url), 'utf8'));
 const installScript = fs.readFileSync(new URL('../../../deploy/install.sh', import.meta.url), 'utf8');
+const installRuntime = fs.readFileSync(new URL('../../../deploy/install-runtime.sh', import.meta.url), 'utf8');
 const deployGuide = fs.readFileSync(new URL('../../../deploy/DEPLOY.md', import.meta.url), 'utf8');
 const envExample = fs.readFileSync(new URL('../../../.env.example', import.meta.url), 'utf8');
 const readme = fs.readFileSync(new URL('../../../README.md', import.meta.url), 'utf8');
@@ -22,14 +23,14 @@ function assertBeginnerFriendlyInstall(source: string): void {
     assert.match(source, /if \[\[ "\$created_env" == true \]\]; then[\s\S]*ensure_generated_secret SESSION_SECRET[\s\S]*ensure_generated_secret STORAGE_CREDENTIALS_SECRET/);
     assert.match(source, /RELEASE_REVISION=.*git rev-parse HEAD/);
     assert.match(source, /RELEASE_VERSION=.*python3[\s\S]*backend\/package\.json/);
-    assert.match(source, /env IMAGE_VERSION="\$RELEASE_VERSION"/);
+    assert.match(installRuntime, /env IMAGE_VERSION="\$RELEASE_VERSION"/);
     assert.match(source, /TG Vault 首次部署完成/);
     assert.match(source, /TG Vault 升级完成/);
 }
 
 test('release images use locked dependencies, pinned bases and source labels', () => {
-    assert.equal(backendPackage.version, '2.4.3');
-    assert.equal(frontendPackage.version, '2.4.3');
+    assert.equal(backendPackage.version, '2.4.5');
+    assert.equal(frontendPackage.version, '2.4.5');
     assert.equal((backend.match(/npm ci/g) || []).length, 2);
     assert.doesNotMatch(backend, /npm install/);
     assert.match(backend, /node@sha256:/);
@@ -82,7 +83,10 @@ test('release metadata is derived per deployment and never persisted in user env
         assert.doesNotMatch(installScript, new RegExp(`upsert_env ${key}\\b`));
     }
     assert.match(installScript, /remove_env_keys IMAGE_VERSION SOURCE_REVISION SOURCE_VERSION/);
-    assert.match(installScript, /env IMAGE_VERSION="\$RELEASE_VERSION" SOURCE_REVISION="\$RELEASE_REVISION" SOURCE_VERSION="\$RELEASE_VERSION" docker compose config --quiet/);
-    assert.match(installScript, /env IMAGE_VERSION="\$RELEASE_VERSION" SOURCE_REVISION="\$RELEASE_REVISION" SOURCE_VERSION="\$RELEASE_VERSION" docker compose build backend frontend/);
-    assert.match(installScript, /env IMAGE_VERSION="\$RELEASE_VERSION" SOURCE_REVISION="\$RELEASE_REVISION" SOURCE_VERSION="\$RELEASE_VERSION" docker compose up -d --no-build --no-deps backend frontend/);
+    assert.match(installScript, /start_installation/);
+    assert.match(installRuntime, /env IMAGE_VERSION="\$RELEASE_VERSION" SOURCE_REVISION="\$RELEASE_REVISION" SOURCE_VERSION="\$RELEASE_VERSION" docker compose/);
+    assert.match(installRuntime, /installer_compose config --quiet/);
+    assert.match(installRuntime, /installer_compose build backend[\s\S]*installer_compose build frontend/);
+    assert.match(installRuntime, /installer_compose up -d --no-build --no-deps --no-recreate --wait --wait-timeout "\$timeout" postgres/);
+    assert.match(installRuntime, /installer_compose up -d --no-build --no-deps --wait --wait-timeout "\$timeout" backend frontend/);
 });

@@ -1,3 +1,5 @@
+import { DownloadSpeedSampler, validBytes, type DownloadByteProgress } from './downloadProgress.js';
+
 export type DownloadTaskGroupKind = 'single' | 'album' | 'channel';
 export type DownloadTaskGroupState =
     | 'waiting'
@@ -37,7 +39,7 @@ export interface DownloadTaskSystemPause {
     blockerCount?: number;
 }
 
-export interface DownloadTaskGroupSnapshot extends DownloadTaskGroupInput {
+export interface DownloadTaskGroupSnapshot extends DownloadTaskGroupInput, DownloadByteProgress {
     state: DownloadTaskGroupState;
     total: number;
     active: number;
@@ -86,6 +88,9 @@ export interface DownloadTaskExecutionResult {
 
 interface DownloadTaskGroupRecord extends DownloadTaskGroupInput {
     expectedTotal: number;
+    settledBytes?: number;
+    settledTotalBytes?: number;
+    settledKnown?: number;
     completed: number;
     failed: number;
     cancelled: number;
@@ -107,6 +112,7 @@ export interface DownloadFileTaskSnapshot {
 }
 
 interface DownloadFileTask extends DownloadFileTaskSnapshot {
+    speedSampler?: DownloadSpeedSampler;
     execute: () => Promise<void>;
     rawExecute: (signal: AbortSignal, taskId?: string) => Promise<void | DownloadTaskExecutionResult>;
     abortController: AbortController;
@@ -224,7 +230,7 @@ export class DownloadTaskQueue {
                 fileName,
                 status: 'pending',
                 abortController,
-                totalSize,
+                totalSize: validBytes(totalSize),
                 downloadedSize: 0,
                 rawExecute: execute,
                 settleCancelled: resolve,
@@ -232,6 +238,7 @@ export class DownloadTaskQueue {
                 execute: async () => {
                     task.status = 'active';
                     task.startTime = Date.now();
+                    task.speedSampler = new DownloadSpeedSampler(task.startTime);
                     group.updatedAt = this.nextGroupVersion(group, task.startTime);
                     this.active.push(task);
                     this.notifyGroup(group);
@@ -385,11 +392,27 @@ export class DownloadTaskQueue {
         return this.maxConcurrent;
     }
 
+    resetProgress(taskId: string): void {
+        const task = this.active.find(item => item.id === taskId);
+        if (!task) return;
+        task.speedSampler?.reset(Date.now());
+        this.updateProgress(taskId, 0, task.totalSize);
+    }
+
+    stopProgress(taskId: string): void {
+        const task = this.active.find(item => item.id === taskId);
+        if (!task) return;
+        task.speedSampler?.reset(Date.now(), task.downloadedSize || 0);
+        const group = this.groups.get(task.groupId);
+        if (group) { group.updatedAt = this.nextGroupVersion(group); this.notifyGroup(group); }
+    }
+
     updateProgress(taskId: string, downloaded: number, total?: number): void {
         const task = this.active.find(item => item.id === taskId);
         if (task) {
-            task.downloadedSize = Math.max(0, downloaded);
-            if (total !== undefined && total > 0) task.totalSize = total;
+            task.downloadedSize = validBytes(downloaded);
+            task.speedSampler?.update(task.downloadedSize, Date.now());
+            if (validBytes(total) > 0) task.totalSize = total;
             const group = this.groups.get(task.groupId);
             if (group) {
                 group.updatedAt = this.nextGroupVersion(group);
@@ -592,6 +615,9 @@ export class DownloadTaskQueue {
             const group = this.groups.get(task.groupId);
             if (!group || group.stateOverride === 'cancelled' || group.stateOverride === 'cancelling') continue;
             group.failed = Math.max(0, group.failed - 1);
+            group.settledBytes = Math.max(0, (group.settledBytes || 0) - validBytes(task.downloadedSize));
+            group.settledTotalBytes = Math.max(0, (group.settledTotalBytes || 0) - validBytes(task.totalSize));
+            group.settledKnown = Math.max(0, (group.settledKnown || 0) - (validBytes(task.totalSize) > 0 ? 1 : 0));
             this.removeHistoryTask(task);
             void this.add(task.groupId, task.fileName, task.rawExecute, task.totalSize || 0, task.onPendingCancelled)
                 .catch(error => console.error(`[Queue] retry failed: ${task.fileName}`, error));
@@ -688,6 +714,12 @@ export class DownloadTaskQueue {
 
     private pushHistory(task: DownloadFileTask): void {
         this.removeHistoryTask(task);
+        const group = this.groups.get(task.groupId);
+        if (group) {
+            group.settledBytes = (group.settledBytes || 0) + (task.status === 'success' ? Math.max(validBytes(task.downloadedSize), validBytes(task.totalSize)) : validBytes(task.downloadedSize));
+            group.settledTotalBytes = (group.settledTotalBytes || 0) + validBytes(task.totalSize);
+            group.settledKnown = (group.settledKnown || 0) + (validBytes(task.totalSize) > 0 ? 1 : 0);
+        }
         this.history.unshift(task);
         if (this.history.length > this.maxHistory) this.history.splice(this.maxHistory);
         this.pruneTerminalGroups();
@@ -833,6 +865,11 @@ export class DownloadTaskQueue {
             completed: group.completed,
             failed: group.failed,
             cancelled: group.cancelled,
+            completedBytes: (group.settledBytes || 0) + activeTasks.reduce((sum, task) => sum + validBytes(task.downloadedSize), 0),
+            totalBytes: (group.settledTotalBytes || 0) + [...activeTasks, ...pendingTasks].reduce((sum, task) => sum + validBytes(task.totalSize), 0),
+            byteProgressKnown: total > 0 && (group.settledKnown || 0) + [...activeTasks, ...pendingTasks].filter(task => validBytes(task.totalSize) > 0).length === total,
+            speedBytesPerSecond: ['running', 'pausing'].includes(state) ? activeTasks.reduce((sum, task) => sum + (task.speedSampler?.speed(Date.now()) || 0), 0) : 0,
+            speedUpdatedAt: Date.now(),
             currentFileName: activeTasks[0]?.fileName,
             reason: this.systemPause
                 ? this.systemPause.reason

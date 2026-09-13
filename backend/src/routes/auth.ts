@@ -36,16 +36,13 @@ async function sendLoginNotification(req: Request) {
         hour12: false
     }).replace(/\//g, '-') + ' (中国/上海)';
 
-    const message = `🔔 **安全登录提示**\n\n` +
-        `👤 **账号**: 管理员\n` +
-        `⏰ **时间**: ${beijingTime}\n` +
-        `🌐 **地区**: ${location}\n` +
-        `💻 **设备**: ${ua.browser.name || '未知'} ${ua.browser.version || ''} on ${ua.os.name || '未知'} ${ua.os.version || ''}\n` +
-        `🔌 **IP地址**: ${ip}\n\n` +
-        `💡 如果这不是您的操作，请立即检查服务器安全设置。`;
-
     // 发送安全通知
-    await sendSecurityNotification(message);
+    await sendSecurityNotification({
+        time: beijingTime,
+        location,
+        device: `${ua.browser.name || '未知'} ${ua.browser.version || ''} on ${ua.os.name || '未知'} ${ua.os.version || ''}`,
+        ip,
+    });
 }
 
 const router = Router();

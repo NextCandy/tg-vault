@@ -50,7 +50,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql://tgvault:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/tgvault
+      - DATABASE_URL=postgresql://tgvault:${DB_PASSWORD_URI:-${DB_PASSWORD:?DB_PASSWORD is required}}@postgres:5432/tgvault
       - PORT=${PORT:-51947}
       - NODE_ENV=production
       - TRUST_PROXY=${TRUST_PROXY:-loopback}
@@ -58,6 +58,11 @@ services:
       - COOKIE_SECURE_FORCE=${COOKIE_SECURE_FORCE:-}
       - JSON_BODY_LIMIT=${JSON_BODY_LIMIT:-2mb}
       - UPLOAD_DIR=${UPLOAD_DIR:-/data/uploads}
+      - LOCAL_STORAGE_HOST_ROOT=${LOCAL_STORAGE_HOST_ROOT:-}
+      - LOCAL_STORAGE_CONTAINER_ROOT=${LOCAL_STORAGE_CONTAINER_ROOT:-}
+      - LOCAL_STORAGE_DEVICE=${LOCAL_STORAGE_DEVICE:-}
+      - LOCAL_STORAGE_INODE=${LOCAL_STORAGE_INODE:-}
+      - LOCAL_STORAGE_MOUNT_TYPE=${LOCAL_STORAGE_MOUNT_TYPE:-}
       - THUMBNAIL_DIR=${THUMBNAIL_DIR:-/data/thumbnails}
       - PREVIEW_DIR=${PREVIEW_DIR:-/data/previews}
       - CHUNK_DIR=${CHUNK_DIR:-/data/chunks}
@@ -122,7 +127,10 @@ services:
       - WEBDAV_UPLOAD_TIMEOUT_MS=${WEBDAV_UPLOAD_TIMEOUT_MS:-21600000}
       - TOTP_SECRET=${TOTP_SECRET:-}
     volumes:
-      - file-storage:/data
+      # Keep the legacy volume unless the installer explicitly selected a new directory.
+      - type: ${LOCAL_STORAGE_MOUNT_TYPE:-volume}
+        source: ${LOCAL_STORAGE_SOURCE:-file-storage}
+        target: /data
     networks:
       - tg-vault-network
     restart: unless-stopped

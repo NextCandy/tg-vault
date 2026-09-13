@@ -15,6 +15,7 @@ import { SETTINGS_SECTIONS, type SettingsSectionId } from "./settingsSections";
 import { IndeterminateSpinner } from "../ui/IndeterminateSpinner";
 import { errorCode, errorMessage } from "../../services/unknownError";
 import { Dialog } from "../ui/Dialog";
+import { LocalStorageLocation } from './LocalStorageLocation';
 import { TelegramUserAccountsPanel } from "./TelegramUserAccountsPanel";
 
 interface SettingsPageProps {
@@ -1075,7 +1076,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
 
             <nav
                 data-testid="settings-tabs"
-                className="sticky top-0 z-20 -mx-1 flex w-full max-w-full flex-wrap gap-2 overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-background/95 p-2 shadow-sm backdrop-blur touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-nowrap"
+                className="flex w-full max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-background/95 p-2 shadow-sm backdrop-blur touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 aria-label={t('settings.title')}
             >
                 {SETTINGS_SECTIONS.map(section => (
@@ -1083,7 +1084,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                         key={section.id}
                         size="sm"
                         variant={activeSection === section.id ? 'default' : 'ghost'}
-                        className="min-h-10 shrink-0 max-[420px]:flex-1"
+                        className="min-h-10 shrink-0 whitespace-nowrap"
                         onClick={() => onSectionChange(section.id)}
                         aria-current={activeSection === section.id ? 'page' : undefined}
                     >
@@ -1601,6 +1602,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             )
                         }
                     />
+                    <LocalStorageLocation />
                 </div>
 
                 <div className="p-4 bg-muted/20 border-b border-border/50">

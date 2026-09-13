@@ -65,9 +65,9 @@ export function renderOAuthSuccessPage(input: {
             <head><meta charset="utf-8" /><title>${providerName} 授权成功</title></head>
             <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
                 <div style="text-align: center; padding: 40px; border-radius: 20px; background: #f0fdf4; border: 1px solid #bbf7d0;">
-                    <h2 style="color: #16a34a; margin-bottom: 10px;">🎉 授权成功！</h2>
-                    <p style="color: #15803d; margin-bottom: 8px;">${providerName} 已成功连接并启用。</p>
-                    <p style="color: #166534; font-size: 14px; margin-bottom: 20px;">窗口将自动关闭。如果未关闭，请点击下方按钮关闭，主页面会自动刷新账户列表。</p>
+                    <h2 style="color: #16a34a; margin-bottom: 10px;">授权成功</h2>
+                    <p style="color: #15803d; margin-bottom: 8px;">${providerName} 已连接。</p>
+                    <p style="color: #166534; font-size: 14px; margin-bottom: 20px;">可关闭此窗口，返回设置查看账户。</p>
                     <button id="close-window" type="button" style="padding: 10px 20px; background: #16a34a; color: white; border: none; border-radius: 8px; cursor: pointer;">关闭此窗口</button>
                     <script nonce="${nonce}">
                         const targetOrigin = ${targetOrigin};

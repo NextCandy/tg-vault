@@ -16,7 +16,7 @@ import {
     getProviderDisplayName,
 } from '../utils/telegramMessages.js';
 import { authenticatedUsers, passwordInputState, isAuthenticatedAsync } from './telegramState.js';
-import { forceStopDownloadTasksForScope, getDownloadQueueStats, getTaskStatus, getDownloadTaskScopeStatus, pauseDownloadTasks, resumeDownloadTasks, retryFailedDownloadTasks, getFileDownloadConcurrency, setFileDownloadConcurrency, listDownloadTaskGroups, getDownloadTaskGroup, prioritizeDownloadTaskGroup, pauseDownloadTaskGroup, resumeDownloadTaskGroup, cancelDownloadTaskGroup, getChannelExecutionGroup, prioritizeChannelExecutionGroup, pauseChannelExecutionGroup, resumeChannelExecutionGroup, cancelChannelExecutionGroup, refreshSilentProgress } from './telegramUpload.js';
+import { forceStopDownloadTasksForScope, getDownloadQueueStats, getTaskStatus, getDownloadTaskScopeStatus, pauseDownloadTasks, resumeDownloadTasks, retryFailedDownloadTasks, getFileDownloadConcurrency, setFileDownloadConcurrency, listDownloadTaskGroups, getDownloadTaskGroup, prioritizeDownloadTaskGroup, pauseDownloadTaskGroup, resumeDownloadTaskGroup, cancelDownloadTaskGroup, getChannelExecutionGroup, prioritizeChannelExecutionGroup, pauseChannelExecutionGroup, resumeChannelExecutionGroup, cancelChannelExecutionGroup, refreshSilentProgress, refreshDownloadProgress } from './telegramUpload.js';
 import { storageManager } from './storage.js';
 import { cancelTelegramBackgroundJob, listTelegramActiveTaskQueues, pauseTelegramBackgroundJob, resumeTelegramBackgroundJob, retryTelegramBackgroundJob } from './telegramChannelJobs.js';
 import { getSetting, setSetting } from '../utils/settings.js';
@@ -28,6 +28,7 @@ import { canonicalTelegramChatKey, telegramChatKeyFromPeerParts } from '../utils
 import { clearTelegramTargetState, getTelegramTargetState, setTelegramTargetState, type TelegramTargetMode } from '../utils/telegramTargetStateStore.js';
 import { buildTaskCancelConfirm, buildTaskCenterDetail, buildTaskCenterPage, channelTaskCenterItem, ordinaryTaskCenterItem, parseTaskCenterCallback, type TaskCenterButton, type TaskCenterItem, type TaskCenterSourceType, type TaskCenterView } from './telegramTaskCenter.js';
 import { DestructiveConfirmationStore } from './destructiveConfirmation.js';
+import { taskCenterCardOwners, taskCenterCardKey, TASK_CENTER_CARD_TTL_MS } from './telegramProgressControls.js';
 import {
     buildPathSettingsKeyboard,
     buildPathSettingsText,
@@ -137,7 +138,7 @@ function buildFileActionKeyboard(file: any, locale: TelegramLocale = DEFAULT_LOC
 function buildFileSearchKeyboard(files: any[]): Api.ReplyInlineMarkup | undefined {
     if (files.length === 0) return undefined;
     return new Api.ReplyInlineMarkup({
-        rows: files.slice(0, 8).map(file => new Api.KeyboardButtonRow({
+        rows: files.slice(0, 12).map(file => new Api.KeyboardButtonRow({
             buttons: [new Api.KeyboardButtonCallback({
                 text: `${file.is_favorite ? '⭐ ' : ''}${String(file.name).slice(0, 38)}`,
                 data: Buffer.from(encodeTelegramFileCallback('detail', String(file.id))),
@@ -795,6 +796,10 @@ export async function handleTargetCallback(
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: MSG.AUTH_REQUIRED, alert: true }));
         return;
     }
+    if (!['target_clear', 'target_once_active', 'target_session_active'].includes(data)) {
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'commands.targetInvalid'), alert: true }));
+        return;
+    }
     const chatId = getCallbackChatKey(update);
     if (data === 'target_clear') {
         await clearTelegramTargetState(chatId);
@@ -1076,7 +1081,7 @@ export async function handleList(message: Api.Message, args: string[], locale?: 
         }
 
         const reply = buildFileList(result.rows, result.rows.length, locale || await getTelegramUserLocaleOrDefault(message.senderId?.toJSNumber() || 0));
-        await message.reply({ message: reply });
+        await message.reply({ message: reply, buttons: buildFileSearchKeyboard(result.rows) });
     } catch (error) {
         console.error('🤖 获取文件列表失败:', error);
         await message.reply({ message: MSG.ERR_FILE_LIST });
@@ -1100,7 +1105,9 @@ export async function handleTelegramFileBrowserCallback(client: TelegramClient, 
     const chatId = getCallbackChatKey(update);
     const messageId = Number(update.msgId);
     if (parsed.action === 'detail') {
-        await client.editMessage(update.peer, { message: messageId, text: buildTelegramFileDetail(file, locale), buttons: buildFileActionKeyboard(file, locale) });
+        await client.editMessage(update.peer, { message: messageId, text: buildTelegramFileDetail(file, locale), buttons: buildFileActionKeyboard(file, locale) }).catch(error => {
+            if (!isTelegramMessageNotModified(error)) throw error;
+        });
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'commands.fileDetail') }));
         return;
     }
@@ -1155,7 +1162,7 @@ export async function applyPendingTelegramFileMutation(message: Api.Message, act
         await message.reply({ message: t(locale, 'commands.fileMutationExpired') });
         return true;
     }
-    if (input.trim() === '取消') {
+    if (['取消', 'cancel', '/cancel', 'отмена', t(locale, 'common.cancel').toLowerCase()].includes(input.trim().toLowerCase())) {
         pendingTelegramFileMutations.delete(key);
         await message.reply({ message: t(locale, 'commands.fileMutationCancelled') });
         return true;
@@ -1255,7 +1262,7 @@ export async function handleDelete(message: Api.Message, args: string[], locale?
         });
         await sent.edit({
             text: sent.message,
-            buttons: buildDeleteConfirmKeyboard(confirmId),
+            buttons: buildDeleteConfirmKeyboard(confirmId, resolvedLocale),
         });
     } catch (error) {
         console.error('🤖 删除文件失败:', error);
@@ -1476,13 +1483,7 @@ async function operateChannelTaskCenterItem(
 }
 
 const pendingTaskCenterCancels = new Map<string, { userId: number; chatId: string; messageId: number; sourceType: TaskCenterSourceType; taskId: string; expiresAt: number }>();
-const taskCenterCardOwners = new Map<string, { userId: number; expiresAt: number }>();
 const TASK_CENTER_CONFIRM_TTL_MS = 2 * 60 * 1000;
-const TASK_CENTER_CARD_TTL_MS = 24 * 60 * 60 * 1000;
-
-function taskCenterCardKey(chatId: string, messageId: number): string {
-    return `${chatId}:${messageId}`;
-}
 
 function taskCenterCancelKey(userId: number, chatId: string, messageId: number): string {
     return `${userId}:${chatId}:${messageId}`;
@@ -1517,6 +1518,7 @@ export async function handleTaskCenterCallback(
         return;
     }
     owner.expiresAt = Date.now() + TASK_CENTER_CARD_TTL_MS;
+    owner.interactive = true;
     try {
         if (parsed.view === 'list') {
             await renderTaskCenterList(client, update, userId, chatId, parsed.page);
@@ -1619,6 +1621,17 @@ export async function handleTaskCenterCallback(
                 await editTaskCenterView(client, update, buildTaskCenterDetail(refreshed, parsed.page, { locale }));
             } else {
                 await renderTaskCenterList(client, update, userId, chatId, parsed.page);
+            }
+        }
+        // Only the original live card can rejoin background updates. Task-center
+        // lists and other confirmation messages remain protected. Release AFTER
+        // the detail edit, so it cannot overwrite the next live progress update.
+        if (ok && (parsed.action === 'resume' || parsed.action === 'start') && owner.progress
+            && taskCenterCardOwners.get(ownerKey) === owner) {
+            owner.interactive = false;
+            pendingTaskCenterCancels.delete(taskCenterCancelKey(userId, chatId, Number(update.msgId)));
+            if (parsed.sourceType === 'memory') {
+                await refreshDownloadProgress(client, chatId, userId);
             }
         }
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: toast, alert: !ok }));
@@ -1958,7 +1971,7 @@ export async function handleFileConcurrency(message: Api.Message, locale?: Teleg
         setFileDownloadConcurrency(current);
         await message.reply({
             message: buildFileConcurrencyText(current, resolvedLocale),
-            buttons: buildFileConcurrencyKeyboard(current),
+            buttons: buildFileConcurrencyKeyboard(current, undefined, resolvedLocale),
         });
     } catch (error) {
         console.error('🤖 获取文件级并发设置失败:', error);
@@ -2042,6 +2055,8 @@ export async function handlePathRulesCallback(client: TelegramClient, update: Ap
             message: Number(update.msgId),
             text: buildPathSettingsText(pathCenterState, chatKey, locale),
             buttons: buildPathSettingsKeyboard(pathCenterState, locale),
+        }).catch(error => {
+            if (!isTelegramMessageNotModified(error)) throw error;
         });
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'path.toast.updated') }));
     } catch (error) {
@@ -2076,6 +2091,8 @@ export async function handleDuplicateModeCallback(client: TelegramClient, update
             message: Number(update.msgId),
             text: buildDuplicateModeText(mode, locale),
             buttons: buildDuplicateModeKeyboard(mode, locale),
+        }).catch(error => {
+            if (!isTelegramMessageNotModified(error)) throw error;
         });
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'commands.auto125', { value0: mode === 'skip' ? t(locale, 'commands.auto011', { value0: '' }).trim() : t(locale, 'commands.auto012', { value0: '' }).trim() }) }));
     } catch (error) {
@@ -2102,6 +2119,10 @@ export async function handleCleanupSettingsCallback(client: TelegramClient, upda
     }
 
     try {
+        if (data !== 'cs_set_on' && data !== 'cs_set_off') {
+            await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'commands.settingFailedRetry'), alert: true }));
+            return;
+        }
         const enabled = data === 'cs_set_on';
         await setSetting('auto_cleanup_orphans', String(enabled));
         process.env.AUTO_CLEANUP_ORPHANS = String(enabled);
@@ -2114,6 +2135,8 @@ export async function handleCleanupSettingsCallback(client: TelegramClient, upda
             message: Number(update.msgId),
             text: buildCleanupSettingsText(enabled, locale),
             buttons: buildCleanupSettingsKeyboard(enabled, locale),
+        }).catch(error => {
+            if (!isTelegramMessageNotModified(error)) throw error;
         });
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, enabled ? 'commands.auto127' : 'commands.auto126') }));
     } catch (error) {
@@ -2158,7 +2181,7 @@ export async function handleDownloadWorkersCallback(client: TelegramClient, upda
                         t(locale, 'commands.auto129'),
                         t(locale, 'commands.auto130'),
                         t(locale, 'commands.auto131'),
-                        '- Telegram 用户账号可能被限流，极端情况下会影响账号',
+                        t(locale, 'commands.auto132'),
                         '',
                         t(locale, 'commands.auto133'),
                     ].join('\n'),
@@ -2218,7 +2241,7 @@ export async function handleFileConcurrencyCallback(client: TelegramClient, upda
             await client.editMessage(update.peer, {
                 message: Number(update.msgId),
                 text: buildFileConcurrencyText(current, locale),
-                buttons: buildFileConcurrencyKeyboard(current),
+                buttons: buildFileConcurrencyKeyboard(current, undefined, locale),
             });
             await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'commands.cancelled') }));
             return;
@@ -2231,16 +2254,16 @@ export async function handleFileConcurrencyCallback(client: TelegramClient, upda
                 await client.editMessage(update.peer, {
                     message: Number(update.msgId),
                     text: [
-                        '⚠️ **确认同时下载 4 个文件？**',
+                        t(locale, 'commands.auto138'),
                         '',
-                        '这是文件级激进并发模式，可能出现：',
-                        '- Telegram 风控或限流',
-                        '- 云盘上传限速 / 失败重试增多',
-                        '- 服务器磁盘和网络压力明显增加',
+                        t(locale, 'commands.auto139'),
+                        t(locale, 'commands.auto140'),
+                        t(locale, 'commands.auto141'),
+                        t(locale, 'commands.auto142'),
                         '',
-                        '如果只是日常下载，建议使用 2 或 3。',
+                        t(locale, 'commands.auto143'),
                     ].join('\n'),
-                    buttons: buildFileConcurrencyKeyboard(concurrency, concurrency),
+                    buttons: buildFileConcurrencyKeyboard(concurrency, concurrency, locale),
                 });
                 await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'commands.secondConfirm') }));
                 return;
@@ -2251,7 +2274,7 @@ export async function handleFileConcurrencyCallback(client: TelegramClient, upda
             await client.editMessage(update.peer, {
                 message: Number(update.msgId),
                 text: `${buildFileConcurrencyText(normalized, locale)}\n\n${t(locale, 'commands.auto144', { value0: '', value1: normalized })}`,
-                buttons: buildFileConcurrencyKeyboard(normalized),
+                buttons: buildFileConcurrencyKeyboard(normalized, undefined, locale),
             });
             await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'commands.auto145', { value0: normalized }) }));
             return;
@@ -2264,7 +2287,7 @@ export async function handleFileConcurrencyCallback(client: TelegramClient, upda
             await client.editMessage(update.peer, {
                 message: Number(update.msgId),
                 text: `${buildFileConcurrencyText(normalized, locale)}\n\n${t(locale, 'commands.auto146', { value0: '', value1: normalized })}`,
-                buttons: buildFileConcurrencyKeyboard(normalized),
+                buttons: buildFileConcurrencyKeyboard(normalized, undefined, locale),
             });
             await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'commands.auto147'), alert: true }));
         }

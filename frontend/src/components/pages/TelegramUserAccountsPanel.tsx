@@ -398,7 +398,7 @@ export function TelegramUserAccountsPanel({
 
             <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-200">
                 <p className="font-medium">{t('management.telegramAccounts.scheduling.title')}</p>
-                <p className="mt-1 text-xs leading-5 text-blue-800/80 dark:text-blue-300/80">{overview.scheduling.description || t('management.telegramAccounts.scheduling.description')}</p>
+                <p className="mt-1 text-xs leading-5 text-blue-800/80 dark:text-blue-300/80">{t('management.telegramAccounts.scheduling.description')}</p>
             </div>
 
             {loading ? <div className="flex min-h-32 items-center justify-center text-sm text-muted-foreground"><LoaderCircle className="mr-2 h-5 w-5 animate-spin" />{t('management.telegramAccounts.loading')}</div> : !loadError && overview.accounts.length === 0 ? <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center"><UserRound className="mx-auto h-8 w-8 text-muted-foreground/60" /><p className="mt-3 text-sm font-medium">{t('management.telegramAccounts.empty.title')}</p><p className="mt-1 text-xs text-muted-foreground">{t('management.telegramAccounts.empty.description')}</p></div> : <div className="space-y-3">

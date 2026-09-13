@@ -12,7 +12,7 @@ for file in postgres.dump file-storage.tar.gz manifest.txt; do
 done
 
 grep -qx 'consistency=backend-stopped' "$BACKUP/manifest.txt" || {
-  echo "manifest 缺少受支持的一致性策略 consistency=backend-stopped" >&2
+  echo "manifest 缺少一致性标记 consistency=backend-stopped。" >&2
   exit 1
 }
 
@@ -30,4 +30,4 @@ docker run --rm -v "$(realpath "$BACKUP"):/backup:ro" alpine:3.20 \
   tar -tzf /backup/file-storage.tar.gz >/dev/null
 
 echo "备份格式、清单和归档校验通过。"
-echo "下一步：在隔离的 Compose project/volume 中恢复，并验证数据库行数、密钥解密和 /readyz；本脚本不会写入生产卷。"
+echo "本次仅校验归档，未恢复数据或写入生产卷。请在隔离 Compose 项目和数据卷中恢复，检查行数、密钥解密及 /readyz。"

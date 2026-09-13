@@ -8,7 +8,7 @@ import { Button } from '../ui/Button';
 import { fileApi, type TaskDismissalPreview, type UnifiedTask, type UnifiedTaskSource } from '../../services/api';
 import { isUnauthorizedError } from '../../services/apiActionError';
 import { cn } from '../../lib/utils';
-import { formatBytes } from '../../services/formatBytes';
+import { taskTransferDisplay } from '../../services/taskTransferDisplay';
 import { useTranslation } from 'react-i18next';
 import { dismissibleTaskSnapshot, pruneSelectedTaskKeys, scopeTasks, summarizeTaskStatuses, type TaskQuickFilter } from '../../services/taskQuickFilters';
 import { createSerialPoller } from '../../services/serialPoller';
@@ -114,7 +114,7 @@ export const TasksPage = ({ onUnauthorized, onOpenUploads, onShowAllTasks, initi
         let first = true;
         const nextDelayMs = () => {
             if (document.visibilityState !== 'visible') return 60_000;
-            return tasksRef.current.some(task => ['pending', 'running', 'paused', 'waiting', 'interrupted'].includes(task.status)) ? 5_000 : 20_000;
+            return tasksRef.current.some(task => ['pending', 'running', 'paused', 'waiting', 'interrupted'].includes(task.status)) ? 3_000 : 20_000;
         };
         const poller = createSerialPoller({
             run: async () => {
@@ -123,7 +123,7 @@ export const TasksPage = ({ onUnauthorized, onOpenUploads, onShowAllTasks, initi
             },
             schedule: (callback, delay) => window.setTimeout(callback, delay),
             cancel: handle => window.clearTimeout(handle as number),
-            delayMs: 5_000,
+            delayMs: 3_000,
             nextDelayMs,
         });
         poller.start();
@@ -259,7 +259,8 @@ export const TasksPage = ({ onUnauthorized, onOpenUploads, onShowAllTasks, initi
                         const stageLabel = STAGE_LABELS[task.stage] ? t(STAGE_LABELS[task.stage]) : task.stage;
                         const statusLabel = STATUS_LABELS[task.status] ? t(STATUS_LABELS[task.status]) : task.status;
                         const showStage = STAGE_LABELS[task.stage] !== STATUS_LABELS[task.status] && stageLabel !== statusLabel;
-                        const detailSpeed = typeof task.detail.speed === 'string' ? task.detail.speed : null;
+                        const transfer = taskTransferDisplay(task);
+                        const detailSpeed = transfer.speed;
                         const detailEta = typeof task.detail.eta === 'string' ? task.detail.eta : null;
                         const checked = selected.includes(taskKey(task));
                         return <article key={taskKey(task)} className="py-5">
@@ -270,7 +271,7 @@ export const TasksPage = ({ onUnauthorized, onOpenUploads, onShowAllTasks, initi
                                     <h3 className="mt-2 line-clamp-2 break-words text-base font-semibold">{task.title}</h3>
                                     <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2"><span className="break-all" title={taskTarget(task)}>{t('tasks.target.label', { target: taskTarget(task) })}</span><span>{t('tasks.updated', { time: new Date(task.updatedAt).toLocaleString(locale, { hour12: false }) })}</span>{(detailSpeed || detailEta) && <span>{detailSpeed ? t('tasks.progress.speed', { speed: detailSpeed }) : ''}{detailSpeed && detailEta ? ' · ' : ''}{detailEta ? t('tasks.progress.eta', { eta: detailEta }) : ''}</span>}</div>
                                     {(task.progress > 0 || ['running', 'paused', 'failed'].includes(task.status)) && <div className="mt-3 flex items-center gap-3"><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }} /></div><span className="w-10 text-right text-xs">{Math.round(task.progress)}%</span></div>}
-                                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">{task.counts.total > 0 && <span>{t('tasks.progress.items', { completed: task.counts.completed, total: task.counts.total })}{task.counts.failed > 0 ? t('tasks.progress.failed', { count: task.counts.failed }) : ''}</span>}{task.bytes.total > 0 && <span>{t('tasks.progress.data', { transferred: formatBytes(task.bytes.transferred), total: formatBytes(task.bytes.total) })}</span>}<span className="inline-flex items-center gap-1 font-mono" title={task.id}>ID {task.id.length > 18 ? `${task.id.slice(0, 18)}...` : task.id}<button title={t('tasks.actions.copyId')} aria-label={t('tasks.actions.copyId')} onClick={() => void navigator.clipboard.writeText(task.id)}><Copy className="h-3.5 w-3.5" /></button></span></div>
+                                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">{task.counts.total > 0 && <span>{t('tasks.progress.items', { completed: task.counts.completed, total: task.counts.total })}{task.counts.failed > 0 ? t('tasks.progress.failed', { count: task.counts.failed }) : ''}</span>}{transfer.showBytes && <span>{t('tasks.progress.data', { transferred: transfer.transferred, total: transfer.total })}</span>}<span className="inline-flex items-center gap-1 font-mono" title={task.id}>ID {task.id.length > 18 ? `${task.id.slice(0, 18)}...` : task.id}<button title={t('tasks.actions.copyId')} aria-label={t('tasks.actions.copyId')} onClick={() => void navigator.clipboard.writeText(task.id)}><Copy className="h-3.5 w-3.5" /></button></span></div>
                                     {task.error && <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 break-words">{task.error}</p>}
                                 </div>
                                 {!selectionMode && <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row">{task.retryable && <Button size="sm" variant="outline" className="gap-1" onClick={() => requestAction(task, 'retry')}>{task.sourceType === 'web_upload' ? <UploadCloud className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}{taskActionLabel(task, 'retry')}</Button>}{task.cancellable && <Button size="sm" variant="outline" className="gap-1 text-red-700" onClick={() => requestAction(task, 'cancel')}><Ban className="h-4 w-4" />{taskActionLabel(task, 'cancel')}</Button>}{task.dismissible && <Button size="sm" variant="ghost" className="gap-1 text-red-700" onClick={() => void prepareDismissal({ tasks: [task] })}><Trash2 className="h-4 w-4" /><span className="hidden sm:inline">{t('tasks.actions.deleteRecord')}</span></Button>}</div>}

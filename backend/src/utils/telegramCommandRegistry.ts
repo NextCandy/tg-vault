@@ -29,9 +29,9 @@ export const BOT_COMMANDS: BotCommandDefinition[] = [
     { command: 'target', description: '设置当前聊天存储目标', helpDescription: '设置下一次或当前聊天持续使用的存储账户；不修改系统默认', category: 'files', menu: true, help: true },
 
     { command: 'help', description: '查看完整帮助', helpDescription: '显示此帮助', category: 'main', menu: true, help: true, requiresAuth: false },
-    { command: 'language', description: '更改 Bot 界面语言', helpDescription: '选择简体中文或 English', category: 'settings', aliases: ['lang'], menu: true, help: true, requiresAuth: false },
+    { command: 'language', description: '更改 Bot 界面语言', helpDescription: '选择简体中文、English 或 Русский', category: 'settings', aliases: ['lang'], menu: true, help: true, requiresAuth: false },
     { command: 'setup_2fa', description: '配置双重验证', helpDescription: '配置双重验证 (TOTP)', category: 'security', aliases: ['setup-2fa'], menu: false, help: true },
-    { command: 'logout', description: '撤销本设备 Bot 认证', helpDescription: '立即退出并撤销当前 Telegram 用户的 Bot 认证', category: 'security', menu: false, help: true },
+    { command: 'logout', description: '撤销当前 Telegram 用户的 Bot 认证', helpDescription: '立即退出并撤销当前 Telegram 用户的 Bot 认证', category: 'security', menu: false, help: true },
     { command: 'p', description: '设置下一次保存目录', helpDescription: '下一次下载保存到指定目录', category: 'files', usage: '<目录>', help: true },
     { command: 'ps', description: '设置本会话保存目录', helpDescription: '本会话持续保存到指定目录', category: 'files', usage: '<目录>', help: true },
     { command: 'pc', description: '清除自定义保存目录', helpDescription: '清除下一次和本会话自定义目录', category: 'files', help: true },
@@ -40,9 +40,9 @@ export const BOT_COMMANDS: BotCommandDefinition[] = [
     { command: 'task_resume', description: '继续任务', helpDescription: '继续当前聊天任务或指定任务', category: 'settings', usage: '[任务 ID]', help: true },
     { command: 'task_cancel', description: '取消任务', helpDescription: '预览并取消指定任务或当前聊天全部任务', category: 'settings', usage: '<任务 ID|all>', help: true },
     { command: 'tg_retry', description: '重试失败任务', helpDescription: '重试最近失败的 Telegram 下载任务', category: 'channels', usage: '[数量] [任务 ID]', help: true },
-    { command: 'stop_tasks', description: '停止当前聊天任务', helpDescription: '兼容入口：预览并停止当前聊天下载任务', category: 'settings', aliases: ['stop', 'cancel_tasks'], help: true },
+    { command: 'stop_tasks', description: '停止当前聊天任务', helpDescription: '预览并停止当前聊天下载任务', category: 'settings', aliases: ['stop', 'cancel_tasks'], help: true },
     { command: 'download_workers', description: '单文件分片并发', helpDescription: '设置单文件分片下载并发', category: 'settings', aliases: ['workers'], help: true },
-    { command: 'file_concurrency', description: '文件级下载并发', helpDescription: '设置 1 / 2 / 3 / 4 个文件并行，避免把分片并发和文件级并发混淆', category: 'settings', aliases: ['file_workers', 'download_files'], menu: false, help: true },
+    { command: 'file_concurrency', description: '文件级下载并发', helpDescription: '设置同时下载的文件数：1 / 2 / 3 / 4', category: 'settings', aliases: ['file_workers', 'download_files'], menu: false, help: true },
     { command: 'status', description: '系统诊断状态', helpDescription: '查看 Bot、账号下载器、存储、磁盘、队列、订阅和对账状态', category: 'settings', menu: true, help: true },
     { command: 'notifications', description: '通知偏好', helpDescription: '设置成功/失败/订阅摘要、时区和安静时段；安全告警始终即时', category: 'settings', menu: true, help: true },
     { command: 'duplicate_mode', description: '重复文件处理', helpDescription: '设置重复文件处理策略', category: 'settings', aliases: ['duplicate', 'dup'], help: true },
@@ -80,7 +80,7 @@ export function normalizeBotCommandText(input: string): string {
 
 export function buildBotHelpSections(): Array<{ title: string; commands: BotCommandDefinition[] }> {
     const labels: Array<[BotCommandCategory, string]> = [
-        ['main', '常用入口'], ['files', '文件与保存位置'], ['channels', '频道与订阅'], ['settings', '任务与系统设置'], ['security', '安全'],
+        ['main', '常用命令'], ['files', '文件与保存位置'], ['channels', '频道与订阅'], ['settings', '任务与系统设置'], ['security', '安全'],
     ];
     return labels.map(([category, title]) => ({
         title,

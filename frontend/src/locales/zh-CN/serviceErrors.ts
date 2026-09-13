@@ -25,11 +25,11 @@ export const serviceErrors = {
     getTwoFactorInfoFailed: '获取 2FA 信息失败', activateTwoFactorFailed: '激活失败', disableTwoFactorFailed: '禁用失败',
   },
   upload: {
-    capabilitiesFailed: '获取上传能力失败', tooLarge: '文件超过服务端允许的最大上传大小 {{size}} GiB',
+    capabilitiesFailed: "获取上传限制失败", tooLarge: '文件超过服务端允许的最大上传大小 {{size}} GiB',
     incompleteFailed: '获取未完成上传失败', sessionUnavailable: '该上传会话已完成、取消或过期，请刷新任务列表',
     resumeNameOrSizeMismatch: '所选文件的名称或大小与原上传任务不一致', resumeSizeMismatch: '所选文件的大小与原上传任务不一致',
     resumeTypeMismatch: '所选文件的类型与原上传任务不一致', resumeContentMismatch: '所选文件内容与原上传任务不一致',
-    resumeIdentityMissing: '上传会话缺少已接收分块的身份信息，请取消后重新上传', completing: '服务器正在完成该上传，请稍后刷新',
+    resumeIdentityMissing: "无法校验已上传的分块，请取消后重新上传", completing: '服务器正在完成该上传，请稍后刷新',
     cancelFailed: '取消上传失败', reopenFailed: '服务器无法重新打开该上传会话', initFailed: '初始化分块上传失败',
     initInvalid: '分块上传初始化响应无效', chunkFailed: '上传分块 {{current}}/{{total}} 失败', completeFailed: '完成分块上传失败',
     cancellationUnknown: '浏览器传输已停止，但无法确认服务器上传会话是否已取消，请刷新上传任务',
@@ -38,7 +38,7 @@ export const serviceErrors = {
   },
   storage: {
     connectionTimeout: '{{provider}} 连接测试超时，请检查服务器地址和网络', addAccountFailed: '添加 {{provider}} 账户失败',
-    unsupportedProvider: '不支持的上传存储类型：{{provider}}', authorizationNotSynchronized: '授权已返回，但后端尚未切换到新存储账户',
+    unsupportedProvider: '不支持的上传存储类型：{{provider}}', authorizationNotSynchronized: "授权已完成，但尚未切换到新存储账户",
     local: '本地存储', localDirectory: '服务器本地目录', currentAccount: '当前账户', root: '根目录',
     getStatsFailed: '获取存储统计失败', getConfigFailed: '获取存储配置失败', updateConfigFailed: '更新配置失败',
     switchFailed: '切换存储失败', getAccountsFailed: '获取账户列表失败', probeFailed: '存储账户连接测试失败',
@@ -54,6 +54,7 @@ export const serviceErrors = {
     toggleFavoriteFailed: '切换收藏状态失败', toggleFolderFavoriteFailed: '切换文件夹收藏状态失败',
   },
   tasks: {
+    getListFailed: '获取任务列表失败', cancelConfirmationFailed: '无法确认取消任务，请重试',
     operationFailed: '任务操作失败', dismissalPreviewFailed: '无法创建任务删除预览', deleteRecordFailed: '删除任务记录失败',
     getAdvancedSettingsFailed: '获取高级任务设置失败', updateAdvancedSettingsFailed: '更新高级任务设置失败', cleanupDownloadsFailed: '清理下载任务明细失败',
   },

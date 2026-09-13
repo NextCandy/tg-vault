@@ -13,7 +13,7 @@ test('Telegram accounts panel presents method-choice multi-account management an
         'account.disable', 'account.enable', 'account.delete', 'summary.permissions', 'scheduling.title',
     ]) {
         const path = `management.telegramAccounts.${key}`;
-        assert.match(panel, new RegExp(`t\\(['\"]${path.replaceAll('.', '\\.')}['\"]`), path);
+        assert.match(panel, new RegExp(`t\\(['"]${path.replaceAll('.', '\\.')}['"]`), path);
         const read = (catalog: Record<string, unknown>) => path.split('.').reduce<unknown>((value, segment) => (value as Record<string, unknown>)[segment], catalog);
         assert.equal(typeof read(zh), 'string', `missing zh-CN ${path}`);
         assert.equal(typeof read(en), 'string', `missing en ${path}`);

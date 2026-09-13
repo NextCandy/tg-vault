@@ -9,10 +9,10 @@ cat > "$TMP/bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "${DOCKER_CALLS:?}"
-if [[ "$1 $2 $3" == "compose ps -q" ]]; then
+if [[ "$1 $2" == "compose ps" ]]; then
   echo backend-container
 elif [[ "$1" == inspect && "$2" == --format=* ]]; then
-  echo test_file-storage
+  if [[ "$2" == *State.Running* ]]; then echo true; else echo /tmp/test_file-storage; fi
 elif [[ "$1 $2" == "compose stop" ]]; then
   if [[ -n "${DOCKER_STOP_SIGNAL:-}" ]]; then
     kill -s "$DOCKER_STOP_SIGNAL" "$PPID"
