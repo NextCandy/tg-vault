@@ -68,8 +68,12 @@ test('installer keeps beginner input to two public origins and derives the rest'
     assert.match(envExample, /高级覆盖：OAuth/);
     assert.doesNotMatch(envExample, /^TELEGRAM_/m);
     assert.match(envExample, /Telegram 不在这里配置/);
-    assert.match(readme, /新手只需填写（2 项）/);
-    assert.match(readme, /不要把这些内容写入 `.env`/);
+    assert.match(readme, /填写 Web 和 API 地址/);
+    assert.match(readme, /设置 → Telegram/);
+    assert.match(readme, /docs\/configuration\.md/);
+    const configurationGuide = fs.readFileSync(new URL('../../../docs/configuration.md', import.meta.url), 'utf8');
+    assert.match(configurationGuide, /新手只需填写（2 项）/);
+    assert.match(configurationGuide, /新部署不需要在 `.env` 中填写 Telegram 变量/);
     assert.match(deployGuide, /首次运行只需要填写以下 2 项/);
     assert.match(deployGuide, /Telegram 不属于首次部署的 `.env` 配置/);
     assert.match(deployGuide, /docker inspect/);
