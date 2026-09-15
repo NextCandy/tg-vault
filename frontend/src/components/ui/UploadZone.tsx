@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { UploadCloud, File as FileIcon } from "lucide-react";
+import { UploadCloud, File as FileIcon } from "./icons";
 import { cn } from "../../lib/utils";
 import { useTranslation } from "react-i18next";
 import type { UploadCapabilities } from "../../services/api";
@@ -15,26 +14,30 @@ interface UploadZoneProps {
     disabled?: boolean;
 }
 
-function formatGiB(bytes: number): string {
-    const value = bytes / 1024 / 1024 / 1024;
-    return `${Number.isInteger(value) ? value : value.toFixed(1)} GiB`;
-}
-
-export const UploadZone = ({ onDrop, uploading = false, uploadProgress = 0, capabilities, destinationLabel, disabled = false }: UploadZoneProps) => {
+export const UploadZone = ({ onDrop, uploading = false, uploadProgress = 0, destinationLabel, disabled = false }: UploadZoneProps) => {
     const [isDragActive, setIsDragActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const { t } = useTranslation();
+    const dragDepth = useRef(0);
+    const { t, i18n } = useTranslation();
+    const language = (i18n.resolvedLanguage || i18n.language || 'en').split('-')[0];
+    const copy = language === 'zh' ? { choose: '选择文件', hint: '选择后自动开始上传', drag: '也可将文件拖到此处' }
+        : language === 'ru' ? { choose: 'Выбрать файлы', hint: 'Загрузка начнётся после выбора файлов', drag: 'Или перетащите файлы сюда' }
+            : { choose: 'Choose files', hint: 'Uploads start automatically after selection', drag: 'Or drag files here' };
+    const chooseLabel = t('auditUpload.choose', { defaultValue: copy.choose });
+    const progress = Math.max(0, Math.min(100, uploadProgress));
 
     const handleDragEnter = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        setIsDragActive(true);
-    }, []);
+        dragDepth.current += 1;
+        if (!disabled) setIsDragActive(true);
+    }, [disabled]);
 
     const handleDragLeave = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        setIsDragActive(false);
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (!dragDepth.current) setIsDragActive(false);
     }, []);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -45,33 +48,24 @@ export const UploadZone = ({ onDrop, uploading = false, uploadProgress = 0, capa
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
+        dragDepth.current = 0;
         setIsDragActive(false);
-
         if (disabled) return;
-
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            const files = Array.from(e.dataTransfer.files);
-            onDrop?.(files);
-        }
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) onDrop?.(Array.from(e.dataTransfer.files));
     }, [disabled, onDrop]);
 
     const handleClick = () => {
-        if (disabled) return;
-        fileInputRef.current?.click();
+        if (!disabled) fileInputRef.current?.click();
     };
-
     const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             handleClick();
         }
     };
-
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            const files = Array.from(e.target.files);
-            onDrop?.(files);
-            // 重置 input 以便可以再次选择同一文件
+        if (!disabled && e.target.files && e.target.files.length > 0) {
+            onDrop?.(Array.from(e.target.files));
             e.target.value = '';
         }
     };
@@ -86,93 +80,26 @@ export const UploadZone = ({ onDrop, uploading = false, uploadProgress = 0, capa
             onKeyDown={handleKeyDown}
             role="button"
             tabIndex={disabled ? -1 : 0}
-            className={cn(
-                "relative group flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border py-10 px-4 text-center transition-all duration-300 ease-out cursor-pointer overflow-hidden",
-                isDragActive
-                    ? "border-primary bg-primary/5 scale-[1.01]"
-                    : "hover:border-primary/50 hover:bg-accent/30"
-            )}
-            aria-label={t("app.dropTitle")}
+            className={cn('op-drop-zone', isDragActive && 'is-dragging', disabled && 'is-disabled')}
+            aria-label={chooseLabel}
             aria-disabled={disabled}
         >
-            <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={handleFileSelect}
-                disabled={disabled}
-            />
-
-            <div className="absolute inset-0 bg-grid-slate-100 [mask-image:linear-gradient(0deg,#fff,rgba(255,255,255,0.6))] dark:bg-grid-slate-700/25 pointer-events-none" />
-
-            {/* 上传进度条 */}
-            {uploading && uploadProgress > 0 && (
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-muted overflow-hidden">
-                    <motion.div
-                        className="h-full bg-primary"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${uploadProgress}%` }}
-                        transition={{ duration: 0.3 }}
-                    />
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} onClick={event => event.stopPropagation()} disabled={disabled} />
+            <div className="op-upload-symbol">
+                {uploading ? <IndeterminateSpinner label={t('files.ui.uploadZone.processing')} size="md" /> : <UploadCloud className="h-6 w-6" />}
+            </div>
+            <div className="op-drop-copy">
+                {uploading && <h3 role="status">{t('upload.uploading', { percent: progress })}</h3>}
+                <p>{uploading ? t('upload.keepUsing') : t('auditUpload.hint', { defaultValue: copy.hint })}</p>
+            </div>
+            <span className="op-drop-choose"><FileIcon className="h-4 w-4" />{isDragActive ? t('files.ui.uploadZone.release') : chooseLabel}</span>
+            <p className="op-drop-support">{t('upload.anyFile')}<span className="op-drop-desktop-hint"> · {t('auditUpload.drag', { defaultValue: copy.drag })}</span></p>
+            {destinationLabel && <small className="op-drop-target">{t('files.ui.uploadZone.destination', { destination: destinationLabel })}</small>}
+            {uploading && (
+                <div className="op-drop-progress op-progress" role="progressbar" aria-label={t('files.ui.uploadZone.processing')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
+                    <span style={{ width: `${progress}%` }} />
                 </div>
             )}
-
-            <motion.div
-                animate={{
-                    scale: isDragActive ? 1.1 : 1,
-                    y: isDragActive ? -5 : 0
-                }}
-                className="z-10 bg-background p-4 rounded-full shadow-sm mb-4 ring-1 ring-border group-hover:shadow-md transition-shadow"
-            >
-                {uploading ? (
-                    <IndeterminateSpinner label={t('files.ui.uploadZone.processing')} size="lg" />
-                ) : (
-                    <UploadCloud className={cn("h-8 w-8 transition-colors", isDragActive ? "text-primary" : "text-muted-foreground")} />
-                )}
-            </motion.div>
-
-            <div className="z-10 flex flex-col gap-1">
-                <h3 className="text-lg font-semibold tracking-tight">
-                    {uploading
-                        ? t("upload.uploading", { percent: uploadProgress })
-                        : isDragActive
-                            ? t("app.dropActive")
-                            : t("app.dropTitle")
-                    }
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                    {uploading
-                        ? t("upload.keepUsing")
-                        : capabilities
-                            ? t('files.ui.uploadZone.chunkPolicy', { base: t('upload.anyFile'), threshold: Math.round(capabilities.simpleUploadThresholdBytes / 1024 / 1024), maximum: formatGiB(capabilities.maxChunkUploadBytes) })
-                            : t('files.ui.uploadZone.limitsLoading', { base: t('upload.anyFile') })
-                    }
-                </p>
-                {destinationLabel && !uploading && (
-                    <p className="mt-2 text-xs font-medium text-foreground/70">{t('files.ui.uploadZone.destination', { destination: destinationLabel })}</p>
-                )}
-            </div>
-
-            <AnimatePresence>
-                {isDragActive && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="absolute inset-0 bg-primary/10 backdrop-blur-[1px] flex items-center justify-center"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.8, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            className="bg-background px-6 py-3 rounded-full shadow-lg font-medium text-primary flex items-center gap-2"
-                        >
-                            <FileIcon className="h-4 w-4" />
-                            {t('files.ui.uploadZone.release')}
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </div>
     );
 };

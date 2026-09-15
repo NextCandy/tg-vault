@@ -1,3 +1,4 @@
+import { ownBotTransport } from './telegramBotTransport.js';
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { NewMessage, NewMessageEvent } from 'telegram/events/index.js';
@@ -36,13 +37,12 @@ import {
     retryTelegramBackgroundJob,
     TELEGRAM_COMMENTS_MAX_PER_POST,
 } from './telegramChannelJobs.js';
-import { buildStartPrompt, buildAuthSuccess, build2FASetupCaption } from '../utils/telegramMessages.js';
+import { buildStartPrompt, buildAuthSuccess, build2FASetupCaption, buildHelp } from '../utils/telegramMessages.js';
 import { query } from '../db/index.js';
 import { getConfiguredTelegramAllowedUsers, addTelegramAllowedUser, countAuthenticatedTelegramUsers, shouldAutoAllowFirstTelegramUser, verifyTelegramPin } from '../utils/authSettings.js';
 import { assertPublicHttpUrl } from '../utils/networkSecurity.js';
 import { consumeOrGetTelegramTargetState } from '../utils/telegramTargetStateStore.js';
 import { BOT_COMMANDS, buildBotCommandMenu, normalizeBotCommandText } from '../utils/telegramCommandRegistry.js';
-import { buildCommandHomePage } from './telegramCommandDispatcher.js';
 import { rememberRecentTelegramPathPersistent, buildPathPreviewLine, applyPendingTelegramPathInputPersistent, getPendingTelegramPathInput, clearPendingTelegramPathInput } from '../utils/telegramPathSettings.js';
 import { isTelegramSubscriptionVisibleInManagement } from './telegramSubscriptionVisibility.js';
 import { buildTelegramSubscriptionPage, buildSubscriptionOperations, parseTelegramSubscriptionCallback } from './telegramSubscriptionManagement.js';
@@ -60,6 +60,8 @@ import {
 } from './telegramBotStatus.js';
 import { getEffectiveTelegramBotConfig, setTelegramBotIdentity, type TelegramBotCredentials } from './telegramBotConfig.js';
 import { getSetting, setSetting } from '../utils/settings.js';
+import { TelegramBotSupervisor, botRetryDelay } from './telegramBotLifecycle.js';
+import { setTelegramBotRuntimeProbe } from './telegramBotStatus.js';
 import { withTelegramOperationDeadline } from './telegramOperationDeadline.js';
 
 const TELEGRAM_BOT_COMMAND_MENU_FINGERPRINT_SETTING = 'telegram_bot_command_menu_fingerprint';
@@ -83,59 +85,24 @@ function telegramBotPostStartupDelayMs(): number {
     return crypto.randomInt(TELEGRAM_BOT_USER_ISOLATION_MIN_MS, TELEGRAM_BOT_USER_ISOLATION_MAX_MS + 1);
 }
 
-export function scheduleTelegramBotPostStartup(restoreUserAccounts: () => Promise<void>): void {
+export function scheduleTelegramBotPostStartup(): void {
     cancelTelegramBotPostStartup();
     const generation = postStartupGeneration;
     const activeClient = client;
     const delayMs = telegramBotPostStartupDelayMs();
-    console.log(`🤖 Telegram 用户账号与后台任务将在 ${Math.ceil(delayMs / 1000)} 秒隔离窗口后恢复`);
+    console.log(`🤖 Telegram Bot 后台任务将在 ${Math.ceil(delayMs / 1000)} 秒隔离窗口后恢复`);
     postStartupTimer = setTimeout(() => {
         postStartupTimer = null;
         void (async () => {
             if (generation !== postStartupGeneration) return;
-            await restoreUserAccounts();
             if (generation !== postStartupGeneration || !activeClient || client !== activeClient || !activeClient.connected || getTelegramBotStatus().status !== 'ready') return;
             startTelegramSubscriptionWorker(activeClient);
             startTelegramJobRecoveryWorker(activeClient);
-            console.log('🤖 Telegram 用户账号及订阅后台任务已在隔离窗口后恢复');
+            console.log('🤖 Telegram Bot 订阅后台任务已在隔离窗口后恢复；用户连接未变更');
         })().catch(error => console.error('🤖 Telegram 启动后运行时恢复失败:', error));
     }, delayMs);
     postStartupTimer.unref?.();
 }
-
-function buildBotStartKeyboard(locale: TelegramLocale = DEFAULT_LOCALE): Api.ReplyInlineMarkup {
-    return new Api.ReplyInlineMarkup({
-        rows: [
-            new Api.KeyboardButtonRow({ buttons: [
-                new Api.KeyboardButtonCallback({ text: t(locale, 'keyboard.upload'), data: Buffer.from('home_upload') }),
-                new Api.KeyboardButtonCallback({ text: t(locale, 'keyboard.tasks'), data: Buffer.from('home_tasks') }),
-            ] }),
-            new Api.KeyboardButtonRow({ buttons: [
-                new Api.KeyboardButtonCallback({ text: t(locale, 'keyboard.storage'), data: Buffer.from('home_storage') }),
-                new Api.KeyboardButtonCallback({ text: t(locale, 'keyboard.more'), data: Buffer.from('home_more') }),
-            ] }),
-        ],
-    });
-}
-
-function homePageKeyboard(requestedPage: number, locale: TelegramLocale = DEFAULT_LOCALE): Api.ReplyInlineMarkup {
-    const page = buildCommandHomePage(requestedPage);
-    return new Api.ReplyInlineMarkup({
-        rows: page.buttons.map(row => new Api.KeyboardButtonRow({
-            buttons: row.map(button => {
-                const command = button.data.match(/^home_open_(.+)$/)?.[1];
-                const definition = command ? BOT_COMMANDS.find(item => item.command === command) : undefined;
-                return new Api.KeyboardButtonCallback({ text: definition ? t(locale, `menu.${definition.command}`) : button.text, data: Buffer.from(button.data) });
-            }),
-        })),
-    });
-}
-
-function homePageText(requestedPage: number, locale: TelegramLocale = DEFAULT_LOCALE): string {
-    const page = buildCommandHomePage(requestedPage);
-    return [`☰ **${t(locale, `bot.home.category.${page.category}`)}**`, t(locale, 'bot.home.page', { page: page.page + 1, totalPages: page.totalPages }), '', t(locale, 'bot.home.hint')].join('\n');
-}
-
 
 async function handleBotHomeCallback(update: Api.UpdateBotCallbackQuery, data: string): Promise<void> {
     const userId = update.userId.toJSNumber();
@@ -145,13 +112,12 @@ async function handleBotHomeCallback(update: Api.UpdateBotCallbackQuery, data: s
     if (data === 'home_tasks' || data === 'home_open_tasks') return handleTasks(await currentMessage(), locale);
     if (data === 'home_storage' || data === 'home_open_storage') return handleStorage(await currentMessage(), locale);
     if (data === 'home_upload') {
-        await client!.editMessage(update.peer, { message: Number(update.msgId), text: t(locale, 'bot.home.uploadHint'), buttons: buildBotStartKeyboard(locale) });
+        await client!.editMessage(update.peer, { message: Number(update.msgId), text: t(locale, 'bot.home.uploadHint'), buttons: new Api.ReplyInlineMarkup({ rows: [] }) });
         return;
     }
     const pageMatch = data.match(/^home_page_(\d+)$/);
     if (data === 'home_more' || pageMatch) {
-        const page = pageMatch ? Number(pageMatch[1]) : 0;
-        await client!.editMessage(update.peer, { message: Number(update.msgId), text: homePageText(page, locale), buttons: homePageKeyboard(page, locale) });
+        await client!.editMessage(update.peer, { message: Number(update.msgId), text: buildHelp(locale), buttons: new Api.ReplyInlineMarkup({ rows: [] }) });
         return;
     }
     const openMatch = data.match(/^home_open_([a-z0-9_]+)$/);
@@ -183,7 +149,7 @@ async function handleBotHomeCallback(update: Api.UpdateBotCallbackQuery, data: s
     if (command === 'pc') return handlePathClear(message);
     if (command === 'duplicate_mode') return handleDuplicateMode(message, locale);
     if (command === 'cleanup_settings') return handleCleanupSettings(message, locale);
-    if (command === 'help') return handleHelp(message, homePageKeyboard(0, locale), locale);
+    if (command === 'help') return handleHelp(message, locale);
     if (command === 'logout') {
         await client!.sendMessage(update.peer, { message: t(locale, 'bot.home.logoutHint') });
         return;
@@ -209,8 +175,43 @@ async function handleBotHomeCallback(update: Api.UpdateBotCallbackQuery, data: s
 
 // GramJS Client
 let client: TelegramClient | null = null;
+function isCurrentBotClient(candidate: TelegramClient): boolean { return client === candidate; }
 let digestTimer: NodeJS.Timeout | null = null;
-let botLifecycle: Promise<void> = Promise.resolve();
+const botSupervisor = new TelegramBotSupervisor();
+let retryTimer: NodeJS.Timeout | null = null;
+let connectionTimer: NodeJS.Timeout | null = null;
+let nextRetryAt: number | null = null;
+let retryAttempt = 0;
+let manualRetryAfter = 0;
+let retryGeneration = 0;
+setTelegramBotRuntimeProbe(() => ({
+    connected: Boolean(client?.connected), busy: botSupervisor.busy,
+    cleanupBlocked: botSupervisor.cleanupBlocked, attempt: retryAttempt,
+    nextRetryAt: nextRetryAt ? new Date(nextRetryAt).toISOString() : null,
+    retryAllowedAt: Date.now() < manualRetryAfter ? new Date(manualRetryAfter).toISOString() : null,
+}));
+function cancelBotRetry(): void {
+    retryGeneration++;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+    nextRetryAt = null;
+}
+function scheduleBotRetry(error: unknown): void {
+    if (botSupervisor.cleanupBlocked) return;
+    const delay = botRetryDelay(error, retryAttempt);
+    if (delay === null) return;
+    const generation = retryGeneration;
+    nextRetryAt = Date.now() + delay;
+    retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void botSupervisor.run(async () => {
+            if (generation !== retryGeneration) return;
+            nextRetryAt = null;
+            try { await restartBotInternal(); } catch (error) { scheduleBotRetry(error); }
+        }).catch(() => undefined);
+    }, delay);
+    retryTimer.unref?.();
+}
 
 type TelegramWizardKind = 'tg_sub_manage' | 'tg_download' | 'tg_date' | 'tg_tag';
 type TelegramWizardStep = 'mode' | 'source' | 'path' | 'comments' | 'start_date' | 'end_date' | 'tag' | 'confirm';
@@ -840,13 +841,14 @@ async function listManageableTelegramSubscriptions(userId: number): Promise<any[
     return rows.filter(isTelegramSubscriptionVisibleInManagement);
 }
 
-function buildSubscriptionActionKeyboard(rows: any[], requestedPage = 0, locale: TelegramLocale = DEFAULT_LOCALE): Api.ReplyInlineMarkup {
+function buildSubscriptionActionKeyboard(rows: any[], requestedPage = 0, locale: TelegramLocale = DEFAULT_LOCALE, selectedId?: string): Api.ReplyInlineMarkup {
     const page = buildTelegramSubscriptionPage(rows, requestedPage);
-    const actionRows = page.visibleRows.flatMap((row, localIndex) => [
-        new Api.KeyboardButtonRow({
-            buttons: [new Api.KeyboardButtonCallback({ text: `${page.startIndex + localIndex + 1}. ${row.title || row.source}`, data: Buffer.from(`tsub_view_${row.id}_${page.page}`) })],
-        }),
-        ...[0, 2, 5].map((start, index, starts) => new Api.KeyboardButtonRow({
+    const selected = rows.find(row => String(row.id) === selectedId);
+    const actionRows = (selected ? [selected] : page.visibleRows).flatMap((row, localIndex) => [
+        ...(!selected ? [new Api.KeyboardButtonRow({
+            buttons: [new Api.KeyboardButtonCallback({ text: `${row.enabled ? '✅' : '⏸️'} ${row.title || row.source}`, data: Buffer.from(`tsub_view_${row.id}_${page.page}`) })],
+        })] : []),
+        ...(selected ? [...[0, 2, 5].map((start, index, starts) => new Api.KeyboardButtonRow({
             buttons: buildSubscriptionOperations(row, locale).slice(start, starts[index + 1]).map(operation => new Api.KeyboardButtonCallback({
                 text: operation.label,
                 data: Buffer.from(`tsub_${operation.action}_${row.id}_${page.page}`),
@@ -858,8 +860,9 @@ function buildSubscriptionActionKeyboard(rows: any[], requestedPage = 0, locale:
                 new Api.KeyboardButtonCallback({ text: t(locale, 'bot.button.clearFolder'), data: Buffer.from(`tsub_clear_${row.id}_${page.page}`) }),
                 new Api.KeyboardButtonCallback({ text: t(locale, 'bot.button.unsubscribe'), data: Buffer.from(`tsub_cancel_${row.id}_${page.page}`) }),
             ],
-        }),
+        })] : []),
     ]);
+    if (selected) return new Api.ReplyInlineMarkup({ rows: [...actionRows, new Api.KeyboardButtonRow({ buttons: [new Api.KeyboardButtonCallback({ text: t(locale, 'bot.subscription.backToList'), data: Buffer.from(`tsub_page_${page.page}`) })] })] });
     const navigation: Api.TypeKeyboardButton[] = [];
     if (page.page > 0) navigation.push(new Api.KeyboardButtonCallback({ text: t(locale, 'bot.button.previous'), data: Buffer.from(`tsub_page_${page.page - 1}`) }));
     navigation.push(new Api.KeyboardButtonCallback({ text: `🔄 ${t(locale, 'common.refresh')}`, data: Buffer.from(`tsub_page_${page.page}`) }));
@@ -875,7 +878,9 @@ function buildSubscriptionActionKeyboard(rows: any[], requestedPage = 0, locale:
     });
 }
 
-function buildSubscriptionManagePanel(rows: any[], requestedPage = 0, locale: TelegramLocale = DEFAULT_LOCALE): string {
+function buildSubscriptionManagePanel(rows: any[], requestedPage = 0, locale: TelegramLocale = DEFAULT_LOCALE, selectedId?: string): string {
+    const selected = rows.find(row => String(row.id) === selectedId);
+    if (selected) return [t(locale, 'bot.subscription.panelTitle'), '', buildSubscriptionDisplayLines(selected, rows.indexOf(selected), locale)].join('\n');
     return buildSubscriptionManagePanelText(rows, buildTelegramSubscriptionPage(rows, requestedPage), locale);
 }
 
@@ -1011,7 +1016,7 @@ async function renderStartAfterLocale(update: Api.UpdateBotCallbackQuery, userId
     await client!.editMessage(update.peer, {
         message: Number(update.msgId),
         text: authenticated ? t(locale, 'auth.welcomeBack') : t(locale, 'auth.startPrompt'),
-        buttons: authenticated ? buildBotStartKeyboard(locale) : generatePasswordKeyboard(0, locale),
+        buttons: authenticated ? new Api.ReplyInlineMarkup({ rows: [] }) : generatePasswordKeyboard(0, locale),
     });
 }
 
@@ -1130,7 +1135,7 @@ async function handlePasswordCallback(update: Api.UpdateBotCallbackQuery): Promi
                     await client.editMessage(update.peer, {
                         message: update.msgId,
                         text: buildAuthSuccess(locale),
-                        buttons: buildBotStartKeyboard(locale),
+                        buttons: new Api.ReplyInlineMarkup({ rows: [] }),
                     });
                     await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'auth.success') }));
                     return;
@@ -1422,14 +1427,14 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
     if (parsed.action === 'pause' || parsed.action === 'resume') {
         await setTelegramSubscriptionEnabled(userId, parsed.id, parsed.action === 'resume');
         const refreshed = await listManageableTelegramSubscriptions(userId);
-        await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(refreshed, parsed.page, locale), buttons: buildSubscriptionActionKeyboard(refreshed, parsed.page, locale) });
+        await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(refreshed, parsed.page, locale, parsed.id), buttons: buildSubscriptionActionKeyboard(refreshed, parsed.page, locale, parsed.id) });
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: parsed.action === 'resume' ? t(locale, 'bot.callback.subscriptionResumed') : t(locale, 'bot.callback.subscriptionPaused') }));
         return;
     }
     if (parsed.action === 'from_now') {
         await setTelegramSubscriptionFromNow(userId, parsed.id);
         const refreshed = await listManageableTelegramSubscriptions(userId);
-        await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(refreshed, parsed.page, locale), buttons: buildSubscriptionActionKeyboard(refreshed, parsed.page, locale) });
+        await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(refreshed, parsed.page, locale, parsed.id), buttons: buildSubscriptionActionKeyboard(refreshed, parsed.page, locale, parsed.id) });
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.cursorUpdated') }));
         return;
     }
@@ -1439,7 +1444,7 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
             ? { mode: 'follow_global' }
             : { mode: 'fixed', provider: storageManager.getActiveTarget().provider.name, accountId: storageManager.getActiveTarget().accountId });
         const refreshed = await listManageableTelegramSubscriptions(userId);
-        await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(refreshed, parsed.page, locale), buttons: buildSubscriptionActionKeyboard(refreshed, parsed.page, locale) });
+        await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(refreshed, parsed.page, locale, parsed.id), buttons: buildSubscriptionActionKeyboard(refreshed, parsed.page, locale, parsed.id) });
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: current ? t(locale, 'bot.callback.followGlobal') : t(locale, 'bot.callback.fixedTarget') }));
         return;
     }
@@ -1462,11 +1467,8 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
     }
 
     if (parsed.action === 'view') {
-        await client.invoke(new Api.messages.SetBotCallbackAnswer({
-            queryId: update.queryId,
-            message: target.folder_override ? t(locale, 'bot.callback.currentFolder', { folder: target.folder_override }) : t(locale, 'bot.callback.defaultPath'),
-            alert: true,
-        }));
+        await client.editMessage(update.peer, { message: update.msgId, text: buildSubscriptionManagePanel(rows, parsed.page, locale, parsed.id), buttons: buildSubscriptionActionKeyboard(rows, parsed.page, locale, parsed.id) });
+        await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId }));
         return;
     }
 
@@ -1491,8 +1493,8 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
         const page = buildTelegramSubscriptionPage(rowsAfterClear, parsed.page);
         await client.editMessage(update.peer, {
             message: update.msgId,
-            text: buildSubscriptionManagePanel(rowsAfterClear, page.page, locale),
-            buttons: buildSubscriptionActionKeyboard(rowsAfterClear, page.page, locale),
+            text: buildSubscriptionManagePanel(rowsAfterClear, page.page, locale, parsed.id),
+            buttons: buildSubscriptionActionKeyboard(rowsAfterClear, page.page, locale, parsed.id),
         });
         await client.invoke(new Api.messages.SetBotCallbackAnswer({ queryId: update.queryId, message: t(locale, 'bot.callback.folderCleared') }));
         return;
@@ -1504,7 +1506,7 @@ async function handleTelegramSubscriptionCallback(update: Api.UpdateBotCallbackQ
     }
 }
 
-export async function initTelegramBot(credentialsOverride?: TelegramBotCredentials): Promise<void> {
+async function initTelegramBotInternal(credentialsOverride?: TelegramBotCredentials): Promise<void> {
     const effective = credentialsOverride ? null : await getEffectiveTelegramBotConfig();
     const credentials = credentialsOverride || effective?.credentials || null;
     const apiId = credentials?.apiId || 0;
@@ -1536,21 +1538,23 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
     }
 
     try {
-        client = new TelegramClient(new StringSession(''), apiId, apiHash, {
-            connectionRetries: 5,
-            reconnectRetries: 5,
+        const attemptClient = ownBotTransport(new TelegramClient(new StringSession(''), apiId, apiHash, {
+            connectionRetries: 1,
+            reconnectRetries: 0,
             retryDelay: 1000,
-            autoReconnect: true,
+            autoReconnect: false,
             useWSS: false,
             deviceModel: 'TG Vault Bot',
             systemVersion: '1.0.0',
             appVersion: '1.0.0',
-            floodSleepThreshold: 120,
-        });
+            floodSleepThreshold: 0,
+        }));
 
+        botSupervisor.own(attemptClient);
+        client = attemptClient;
         console.log('🤖 Telegram Bot 正在启动...');
-        await withTelegramOperationDeadline(client.start({ botAuthToken: botToken }), startupTimeoutMs, 'Telegram Bot 启动超时，请稍后重试');
-        await withTelegramOperationDeadline(client.getMe(), 10_000, 'Telegram Bot 身份读取超时，请稍后重试');
+        await botSupervisor.operation(() => attemptClient.start({ botAuthToken: botToken }), startupTimeoutMs);
+        await botSupervisor.operation(() => attemptClient.getMe(), 10_000);
 
         console.log('🤖 Telegram Bot 已连接!');
 
@@ -1584,9 +1588,9 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
             if (savedFingerprint !== commandMenuFingerprint) {
                 for (const { locale, langCode } of menuLocales) {
                     const commands = buildBotCommandMenu(locale).map(command => new Api.BotCommand(command));
-                    await withTelegramClientDeadline(client.invoke(new Api.bots.SetBotCommands({
+                    await botSupervisor.operation(() => attemptClient.invoke(new Api.bots.SetBotCommands({
                         scope: new Api.BotCommandScopeDefault(), langCode, commands,
-                    })), 10_000, 'Telegram Bot 命令菜单注册超时，请稍后重试');
+                    })), 10_000);
                 }
                 await setSetting(TELEGRAM_BOT_COMMAND_MENU_FINGERPRINT_SETTING, commandMenuFingerprint);
                 console.log('🤖 Bot 命令菜单已更新');
@@ -1594,7 +1598,9 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                 console.log('🤖 Bot 命令菜单未变化，跳过重复注册');
             }
         } catch (error) {
-            console.warn('🤖 Bot 命令菜单同步失败，Bot 继续运行:', error);
+            // A deadline is not cancellation. Do not publish ready with an
+            // unsettled menu RPC or ignore server flood/auth instructions.
+            throw error;
         }
 
         try {
@@ -1608,8 +1614,9 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
         // 避免仅保存凭证就触发订阅扫描、任务恢复或主动消息。
 
         // Handle Messages
-        client.addEventHandler(async (event: NewMessageEvent) => {
-            if (!client) return;
+        attemptClient.addEventHandler(async (event: NewMessageEvent) => {
+            if (!isCurrentBotClient(attemptClient) || getTelegramBotStatus().status !== 'ready') return;
+            const client: TelegramClient = attemptClient;
 
             try {
                 const message = event.message;
@@ -1650,7 +1657,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                         await message.reply({ message: t(DEFAULT_LOCALE, 'language.choose'), buttons: languageKeyboard(DEFAULT_LOCALE) });
                         return;
                     }
-                    await handleStart(message, senderId, buildBotStartKeyboard(savedLocale), savedLocale);
+                    await handleStart(message, senderId, savedLocale);
                     if (!(await isAuthenticatedAsync(senderId))) {
                         await message.reply({
                             message: buildStartPrompt(savedLocale),
@@ -1701,7 +1708,7 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                 }
 
                 if (text === '/help') {
-                    await handleHelp(message, homePageKeyboard(0, await getTelegramUserLocaleOrDefault(senderId)), await getTelegramUserLocaleOrDefault(senderId));
+                    await handleHelp(message, await getTelegramUserLocaleOrDefault(senderId));
                     return;
                 }
 
@@ -2132,10 +2139,10 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
                                     return;
                                 }
                                 await activate2FA();
-                                await message.reply({ message: t(locale, 'auth.twoFactorActivated'), buttons: buildBotStartKeyboard(locale) });
+                                await message.reply({ message: t(locale, 'auth.twoFactorActivated'), buttons: new Api.ReplyInlineMarkup({ rows: [] }) });
                             } else {
                                 await persistAuthenticatedUser(senderId);
-                                await message.reply({ message: t(locale, 'auth.twoFactorLoginOk'), buttons: buildBotStartKeyboard(locale) });
+                                await message.reply({ message: t(locale, 'auth.twoFactorLoginOk'), buttons: new Api.ReplyInlineMarkup({ rows: [] }) });
                             }
 
                             // Clean up sensitive messages
@@ -2179,7 +2186,9 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
         }, new NewMessage({ incoming: true }));
 
         // Handle Callbacks
-        client.addEventHandler(async (update: Api.TypeUpdate) => {
+        attemptClient.addEventHandler(async (update: Api.TypeUpdate) => {
+            if (!isCurrentBotClient(attemptClient) || getTelegramBotStatus().status !== 'ready') return;
+            const client: TelegramClient = attemptClient;
             if (update.className === 'UpdateBotCallbackQuery') {
                 if (!client) return;
                 const activeClient = client;
@@ -2316,16 +2325,22 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
             }
         }, new Raw({}));
 
-        const me: any = await withTelegramClientDeadline(
-            client.getMe(),
-            10_000,
-            'Telegram Bot 身份读取超时，请稍后重试',
-        );
+        const me: any = await botSupervisor.operation(() => attemptClient.getMe(), 10_000);
         setTelegramBotIdentity({
             username: me?.username ? String(me.username) : null,
             displayName: [me?.firstName, me?.lastName].filter(Boolean).join(' ') || null,
         });
+        botSupervisor.assertActive();
+        botSupervisor.assertActive();
         markTelegramBotReady();
+        connectionTimer = setInterval(() => {
+            if (client !== attemptClient || attemptClient.connected || botSupervisor.busy || nextRetryAt) return;
+            if (connectionTimer) clearInterval(connectionTimer);
+            connectionTimer = null;
+            markTelegramBotError('reconnecting', 'Telegram Bot connection lost', '等待 Bot-only 重试');
+            scheduleBotRetry(new Error('CONNECTION_LOST'));
+        }, 5_000);
+        connectionTimer.unref?.();
 
         digestTimer = setInterval(() => {
             if (!client) return;
@@ -2342,12 +2357,8 @@ export async function initTelegramBot(credentialsOverride?: TelegramBotCredentia
         if (digestTimer) clearInterval(digestTimer);
         digestTimer = null;
 
-        const failedClient = client;
         client = null;
-        if (failedClient) {
-            await failedClient.disconnect().catch(() => undefined);
-            await failedClient.destroy().catch(() => undefined);
-        }
+        try { await botSupervisor.cleanup(); } catch (cleanupError) { error = cleanupError; }
         const status = classifyTelegramBotStartupError(error);
         const message = error instanceof Error ? error.message : String(error);
         markTelegramBotError(
@@ -2366,15 +2377,19 @@ async function withTelegramClientDeadline<T>(operation: Promise<T>, timeoutMs: n
 
 async function stopTelegramBotInternal(): Promise<void> {
     cancelTelegramBotPostStartup();
-    const activeClient = client;
+    if (connectionTimer) clearInterval(connectionTimer);
+    connectionTimer = null;
     if (digestTimer) clearInterval(digestTimer);
     digestTimer = null;
 
-    await stopTelegramBackgroundWorkers();
     client = null;
-    if (activeClient) {
-        await activeClient.disconnect().catch(() => undefined);
-        await activeClient.destroy().catch(() => undefined);
+    try {
+        await withTelegramOperationDeadline(stopTelegramBackgroundWorkers(), 10_000, 'BOT_WORKER_STOP_TIMEOUT');
+        await botSupervisor.cleanup();
+    } catch (error) {
+        botSupervisor.quarantine();
+        markTelegramBotError('error', 'BOT_CLEANUP_UNCONFIRMED', 'Restart process after checking Bot cleanup; user clients are unchanged');
+        throw error;
     }
     resetTelegramBotStatus(false);
 }
@@ -2384,21 +2399,47 @@ export interface TelegramBotLifecycleControls {
     restart(credentialsOverride?: TelegramBotCredentials): Promise<void>;
 }
 
+async function restartBotInternal(credentialsOverride?: TelegramBotCredentials): Promise<void> {
+    await stopTelegramBotInternal();
+    botSupervisor.assertActive();
+    retryAttempt++;
+    await initTelegramBotInternal(credentialsOverride);
+    scheduleTelegramBotPostStartup();
+}
+
 export function withTelegramBotLifecycle<T>(operation: (controls: TelegramBotLifecycleControls) => Promise<T>): Promise<T> {
-    const controls: TelegramBotLifecycleControls = {
-        stop: () => stopTelegramBotInternal(),
-        restart: async (credentialsOverride?: TelegramBotCredentials) => {
-            // Explicit Web/API replacement restarts only the Bot. Existing user
-            // downloader sessions are left untouched. Background workers resume
-            // only after the same isolation window, without reconnecting users.
-            await stopTelegramBotInternal();
-            await initTelegramBot(credentialsOverride);
-            scheduleTelegramBotPostStartup(async () => undefined);
-        },
-    };
-    const result = botLifecycle.catch(() => undefined).then(() => operation(controls));
-    botLifecycle = result.then(() => undefined, () => undefined);
-    return result;
+    cancelBotRetry();
+    botSupervisor.cancel();
+    return botSupervisor.run(async () => {
+        retryAttempt = 0;
+        return operation({ stop: stopTelegramBotInternal, restart: restartBotInternal });
+    });
+}
+
+export async function initTelegramBot(credentialsOverride?: TelegramBotCredentials): Promise<void> {
+    return botSupervisor.run(async () => {
+        if (client?.connected) return;
+        try { await restartBotInternal(credentialsOverride); }
+        catch (error) { scheduleBotRetry(error); throw error; }
+    });
+}
+
+export async function retryTelegramBot(): Promise<{ accepted: boolean; code: string }> {
+    // Validate without accepting credentials or writing any configuration.
+    const effective = await getEffectiveTelegramBotConfig();
+    if (!effective.credentials) return { accepted: false, code: 'BOT_NOT_CONFIGURED' };
+    if (!effective.enabled) return { accepted: false, code: 'BOT_DISABLED' };
+    if (botSupervisor.cleanupBlocked) return { accepted: false, code: 'BOT_CLEANUP_UNCONFIRMED' };
+    if (botSupervisor.busy) return { accepted: false, code: 'BOT_RETRY_IN_PROGRESS' };
+    if (nextRetryAt || Date.now() < manualRetryAfter) return { accepted: false, code: 'BOT_RETRY_COOLDOWN' };
+    manualRetryAfter = Date.now() + 30_000;
+    cancelBotRetry();
+    retryAttempt = 0;
+    void botSupervisor.run(async () => {
+        // A queued config mutation wins; never use stale captured credentials.
+        try { await restartBotInternal(); } catch (error) { scheduleBotRetry(error); }
+    }).catch(() => undefined);
+    return { accepted: true, code: 'BOT_RETRY_ACCEPTED' };
 }
 
 export async function stopTelegramBot(): Promise<void> {

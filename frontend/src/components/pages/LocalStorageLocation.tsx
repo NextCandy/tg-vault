@@ -1,9 +1,12 @@
+import { formatNumber } from '../../i18n/format';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
 import { apiRequest } from '../../services/httpClient';
 import { API_BASE, normalizeApiBase } from '../../services/config';
 import { getApiHeaders } from '../../services/clients/clientHeaders';
+import { Copy, HardDrive } from '../ui/icons';
+import './settings.css';
 
 export interface LocationInfo {
     hostPath: string | null;
@@ -16,7 +19,7 @@ export interface LocationInfo {
 }
 
 export function LocalStorageLocation() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const [info, setInfo] = useState<LocationInfo | null>(null);
     const [failed, setFailed] = useState(false);
     const [copy, setCopy] = useState('copy');
@@ -34,24 +37,38 @@ export function LocalStorageLocation() {
         return () => controller.abort();
     }, [revision]);
     const label = (key: string) => t(`localStorageLocation.${key}`);
-    return <div className="min-w-0 space-y-3 px-4 pb-4 text-sm" data-local-storage-location>
-        {failed ? <div role="alert">{label('loadFailed')} <Button size="sm" variant="outline" onClick={() => setRevision(r => r + 1)}>{label('retry')}</Button></div> : !info ? <p role="status">{label('loading')}</p> : <>
-            <div className="space-y-2">
-                <p className="font-medium">{label('hostPath')}</p>
-                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
-                    <code className="min-w-0 flex-1 break-all whitespace-normal rounded bg-muted p-2" data-host-storage-path>{info.pathStatus === 'verified' && info.hostPath ? info.hostPath : label('unconfirmed')}</code>
-                    {info.pathStatus === 'verified' && info.hostPath && <Button size="sm" variant="outline" className="shrink-0" onClick={async () => {
+    return <div className="settings-surface settings-local" data-local-storage-location>
+        {failed ? <div role="alert" className="settings-notice settings-status--danger settings-action-row">
+            <span>{label('loadFailed')}</span>
+            <Button size="sm" variant="outline" onClick={() => setRevision(r => r + 1)}>{label('retry')}</Button>
+        </div> : !info ? <p role="status" className="settings-help">{label('loading')}</p> : <>
+            <div className="settings-local__path">
+                <div className="settings-local__heading">
+                    <HardDrive className="h-4 w-4 text-primary" aria-hidden="true" />
+                    <h4>{label('hostPath')}</h4>
+
+                    {info.pathStatus === 'verified' && info.hostPath && <Button size="sm" variant="outline" onClick={async () => {
                         try { await navigator.clipboard.writeText(info.hostPath!); setCopy('copied'); }
                         catch { setCopy('copyFailed'); }
-                    }}>{label(copy)}</Button>}
-                </div>
-                <p aria-live="polite">{label('status')}: {label(info.status)}</p>
-                <p>{label('free')}: {info.availableBytes === null ? label('unknown') : `${(info.availableBytes / 1024 ** 3).toLocaleString(undefined, { maximumFractionDigits: 1 })} GiB`}</p>
+                    }}><Copy className="h-3.5 w-3.5" aria-hidden="true" /><span aria-live="polite">{label(copy)}</span></Button>}
+                </div><div className="settings-local__copy"><code data-host-storage-path tabIndex={0} aria-label={label('hostPath')}>{info.pathStatus === 'verified' && info.hostPath ? info.hostPath : label('unconfirmed')}</code></div>
             </div>
-            <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer py-1">{label('details')}</summary>
-                <p className="break-all">{label('containerPath')}: {info.containerPath}</p>
-                <p>{label('mountType')}: {info.mountType || label('unknown')}</p>
+            <dl className="settings-local__facts">
+                <div>
+                    <dt>{label('status')}</dt>
+                    <dd aria-live="polite"><span className={`tv-badge settings-status settings-status--${info.status === 'available' ? 'success' : info.status === 'read-only' ? 'warning' : 'danger'}`}>{label(info.status)}</span></dd>
+                </div>
+                <div>
+                    <dt>{label('free')}</dt>
+                    <dd className="settings-local__capacity">{info.availableBytes === null ? label('unknown') : `${formatNumber(info.availableBytes / 1024 ** 3, i18n.resolvedLanguage || i18n.language, { maximumFractionDigits: 1 })} GiB`}</dd>
+                </div>
+            </dl>
+            <details className="settings-local__details">
+                <summary>{label('details')}</summary>
+                <dl>
+                    <div><dt>{label('containerPath')}</dt><dd><code>{info.containerPath}</code></dd></div>
+                    <div><dt>{label('mountType')}</dt><dd>{info.mountType || label('unknown')}</dd></div>
+                </dl>
                 <p>{label('capacityNote')}</p>
                 <p>{label('mappingNote')}</p>
             </details>

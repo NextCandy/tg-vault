@@ -258,6 +258,20 @@ class FileAPI {
         return response.json();
     }
 
+    async setSubscriptionEnabled(subscriptionId: string, enabled: boolean): Promise<void> {
+        const response = await apiRequest(`${API_BASE}/api/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+            credentials: 'include', method: 'PATCH', headers: getHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ enabled }),
+        });
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || tr('errors.services.telegram.updateAdFilterFailed'));
+    }
+
+    async deleteSubscription(subscriptionId: string): Promise<void> {
+        const response = await apiRequest(`${API_BASE}/api/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+            credentials: 'include', method: 'DELETE', headers: getHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ confirmSubscriptionId: subscriptionId }),
+        });
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || tr('errors.services.telegram.updateAdFilterFailed'));
+    }
+
     async updateSubscriptionAdFilter(subscriptionId: string, adFilterMode: TelegramAdFilterMode): Promise<TelegramSubscription> {
         const response = await apiRequest(`${API_BASE}/api/subscriptions/${encodeURIComponent(subscriptionId)}`, {
             credentials: 'include', method: 'PATCH', headers: getHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ adFilterMode }),
@@ -687,10 +701,17 @@ class FileAPI {
         return payload;
     }
 
-    async getTelegramBotConfig(): Promise<TelegramBotPublicConfig> {
-        const response = await apiRequest(`${API_BASE}/api/storage/config/telegram-bot`, { credentials: 'include', headers: getHeaders() });
+    async getTelegramBotConfig(signal?: AbortSignal): Promise<TelegramBotPublicConfig> {
+        const response = await apiRequest(`${API_BASE}/api/storage/config/telegram-bot`, { credentials: 'include', headers: getHeaders(), signal });
         if (!response.ok) throw new Error(tr('errors.services.telegram.getBotConfigFailed'));
         return response.json();
+    }
+
+    // Runtime-only action: deliberately no credentials/configuration body.
+    async retryTelegramBotConnection(signal?: AbortSignal): Promise<void> {
+        await apiRequest(`${API_BASE}/api/storage/config/telegram-bot/retry`, {
+            method: 'POST', credentials: 'include', headers: getHeaders(), signal,
+        });
     }
 
     async getUpdateStatus(): Promise<UpdateStatus> {

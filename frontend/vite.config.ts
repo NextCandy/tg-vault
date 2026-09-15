@@ -11,7 +11,7 @@ export default defineConfig({
           react: ['react', 'react-dom'],
           motion: ['framer-motion'],
           i18n: ['i18next', 'react-i18next', 'i18next-browser-languagedetector'],
-          icons: ['lucide-react'],
+          icons: ['@phosphor-icons/react'],
         },
       },
     },

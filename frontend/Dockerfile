@@ -15,7 +15,7 @@ COPY . .
 ARG VITE_API_URL=http://localhost:51947
 ENV VITE_API_URL=${VITE_API_URL}
 
-RUN npm run build
+RUN NODE_OPTIONS=--max-old-space-size=768 npm run build
 
 # Production stage
 FROM nginx@sha256:4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752

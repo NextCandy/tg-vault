@@ -511,16 +511,16 @@ function getCallbackChatKey(update: Api.UpdateBotCallbackQuery): string {
     }
 }
 
-export async function handleStart(message: Api.Message, senderId: number, buttons?: Api.TypeReplyMarkup, locale?: TelegramLocale): Promise<void> {
+export async function handleStart(message: Api.Message, senderId: number, locale?: TelegramLocale): Promise<void> {
     if (await isAuthenticatedAsync(senderId)) {
-        await message.reply({ message: buildWelcomeBack(locale || await getTelegramUserLocaleOrDefault(senderId)), buttons });
+        await message.reply({ message: buildWelcomeBack(locale || await getTelegramUserLocaleOrDefault(senderId)) });
     } else {
         passwordInputState.set(senderId, { password: '' });
     }
 }
 
-export async function handleHelp(message: Api.Message, buttons?: Api.TypeReplyMarkup, locale?: TelegramLocale): Promise<void> {
-    await message.reply({ message: buildHelp(locale || await getTelegramUserLocaleOrDefault(message.senderId?.toJSNumber() || 0)), buttons });
+export async function handleHelp(message: Api.Message, locale?: TelegramLocale): Promise<void> {
+    await message.reply({ message: buildHelp(locale || await getTelegramUserLocaleOrDefault(message.senderId?.toJSNumber() || 0)) });
 }
 
 function buildNotificationSettingsKeyboard(current: Awaited<ReturnType<typeof getTelegramNotificationPreferences>>, locale: TelegramLocale = DEFAULT_LOCALE): Api.ReplyInlineMarkup {

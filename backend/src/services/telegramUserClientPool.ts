@@ -84,7 +84,8 @@ export class TelegramUserClientPool<C extends TelegramPooledClient = TelegramPoo
 
     async initialize(credentials: TelegramPoolCredentials): Promise<void> {
         const run = this.initializationTail.then(async () => {
-            await this.shutdownEntries();
+            // Startup reconciliation is additive: an account explicitly enabled
+            // before delayed recovery must retain its exact live client/leases.
             this.credentials = credentials;
             await this.deps.repository.migrateLegacySystemSettings();
             const accounts = await this.deps.repository.listEnabledAccounts();
@@ -123,7 +124,7 @@ export class TelegramUserClientPool<C extends TelegramPooledClient = TelegramPoo
     }
 
     private async connectAccount(account: TelegramUserAccountRecord): Promise<void> {
-        if (!this.credentials || !account.enabled || account.healthState === 'session_expired') return;
+        if (this.entries.has(account.id) || !this.credentials || !account.enabled || account.healthState === 'session_expired') return;
         let client: C | null = null;
         try {
             const session = this.deps.decryptSession(account.session);

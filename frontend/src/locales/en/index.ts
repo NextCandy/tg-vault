@@ -7,6 +7,9 @@ import { appCopy } from './app';
 import { serviceErrors } from './serviceErrors';
 import { management } from './management';
 import { remainingPages } from './remainingPages';
+import { redesign } from './redesign';
+import { uiAudit } from './uiAudit';
+import { botConnection } from './botConnection';
 import { mergeCatalogs } from '../../i18n/mergeCatalogs';
 
-export default mergeCatalogs(base, { common, auth, files, errors: { ...errors, services: serviceErrors }, appCopy, management }, remainingPages);
+export default mergeCatalogs(base, { common, auth, files, errors: { ...errors, services: serviceErrors }, appCopy, management }, remainingPages, redesign, uiAudit, botConnection);

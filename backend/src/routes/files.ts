@@ -18,9 +18,9 @@ import {
     type FileQueryScope,
 } from '../services/fileQuery.js';
 import { normalizeFolderPath } from '../utils/folderPath.js';
-import { classifyMediaProxyError } from '../services/mediaProxyError.js';
 import { buildCloudMediaResponse } from '../services/cloudMediaResponse.js';
-import { pipeline } from 'node:stream/promises';
+import type { Readable } from 'node:stream';
+import { sendMediaError, streamMediaResponse } from '../services/mediaStreamResponse.js';
 
 const router = Router();
 
@@ -74,15 +74,13 @@ async function serveLocalPathWithRange(req: Request, res: Response, filePath: st
             'Content-Length': String(chunkSize),
         });
         const stream = fs.createReadStream(filePath, { start, end });
-        req.once('aborted', () => stream.destroy());
-        await pipeline(stream, res);
+        await streamMediaResponse(req, res, stream);
         return;
     }
 
     res.set('Content-Length', String(stat.size));
     const stream = fs.createReadStream(filePath);
-    req.once('aborted', () => stream.destroy());
-    await pipeline(stream, res);
+    await streamMediaResponse(req, res, stream);
 }
 
 async function serveCloudMediaStream(
@@ -110,18 +108,7 @@ async function serveCloudMediaStream(
         'Cache-Control': 'private, no-store',
         ...upstream.headers,
     });
-    stream.once('error', (error: Error) => {
-        console.error('云端媒体流中断:', error);
-        if (!res.headersSent) {
-            const response = classifyMediaProxyError(error);
-            if (response.retryAfter) res.set('Retry-After', String(response.retryAfter));
-            res.status(response.status).json({ code: response.code, error: response.error });
-        } else {
-            res.destroy(error);
-        }
-    });
-    req.once('aborted', () => stream.destroy?.());
-    stream.pipe(res);
+    await streamMediaResponse(req, res, stream as Readable);
 }
 
 function parseRangeHeader(range: string | undefined, size: number): { start: number; end: number } | null {
@@ -429,13 +416,7 @@ router.get('/:id([0-9a-fA-F-]{36})/media-status', async (req: Request, res: Resp
         return res.json({ available: true, source: file.source });
     } catch (error) {
         console.error('查询媒体源状态失败:', error);
-        const response = classifyMediaProxyError(error);
-        if (response.retryAfter) res.set('Retry-After', String(response.retryAfter));
-        return res.status(response.status).json({
-            code: response.code,
-            error: response.error,
-            ...(response.reason ? { reason: response.reason } : {}),
-        });
+        return sendMediaError(res, error);
     }
 });
 
@@ -485,9 +466,7 @@ router.get('/:id([0-9a-fA-F-]{36})/preview', async (req: Request, res: Response)
                 return;
             } catch (err) {
                 console.error(`获取 ${file.source} 预览链接/流失败:`, err);
-                const response = classifyMediaProxyError(err);
-                if (response.retryAfter) res.set('Retry-After', String(response.retryAfter));
-                return res.status(response.status).json({ code: response.code, error: response.error });
+                return sendMediaError(res, err);
             }
         }
 
@@ -543,7 +522,7 @@ router.get('/:id([0-9a-fA-F-]{36})/preview', async (req: Request, res: Response)
         );
     } catch (error) {
         console.error('预览文件失败:', error);
-        res.status(500).json({ error: '预览文件失败' });
+        sendMediaError(res, error);
     }
 });
 
@@ -574,9 +553,7 @@ router.get('/:id([0-9a-fA-F-]{36})/original', async (req: Request, res: Response
                 return;
             } catch (error) {
                 console.error('获取原始文件失败:', error);
-                const response = classifyMediaProxyError(error);
-                if (response.retryAfter) res.set('Retry-After', String(response.retryAfter));
-                return res.status(response.status).json({ code: response.code, error: response.error });
+                return sendMediaError(res, error);
             }
         }
 
@@ -585,7 +562,7 @@ router.get('/:id([0-9a-fA-F-]{36})/original', async (req: Request, res: Response
         await serveLocalPathWithRange(req, res, filePath, file.mime_type || 'application/octet-stream', 'public, max-age=86400', `"${file.id}-${file.updated_at}-original"`);
     } catch (error) {
         console.error('获取原始文件失败:', error);
-        res.status(500).json({ error: '获取原始文件失败' });
+        sendMediaError(res, error);
     }
 });
 
@@ -654,14 +631,13 @@ router.get('/:id([0-9a-fA-F-]{36})/download', async (req: Request, res: Response
                     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
                     return res.redirect(url);
                 } else {
-                    const stream = await provider.getFileStream(file.path);
                     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.name)}"`);
-                    (stream as any).pipe(res);
+                    await serveCloudMediaStream(req, res, provider, file.path, file.mime_type || 'application/octet-stream');
                     return;
                 }
             } catch (err) {
                 console.error(`获取 ${file.source} 下载链接/流失败:`, err);
-                return res.status(500).json({ error: '无法下载文件' });
+                return sendMediaError(res, err);
             }
         }
 
@@ -678,11 +654,12 @@ router.get('/:id([0-9a-fA-F-]{36})/download', async (req: Request, res: Response
         res.download(filePath, file.name, (err) => {
             if (err) {
                 console.error('[Download] Send file error:', err);
+                sendMediaError(res, err);
             }
         });
     } catch (error) {
         console.error('下载文件失败:', error);
-        res.status(500).json({ error: '下载文件失败' });
+        sendMediaError(res, error);
     }
 });
 
@@ -711,8 +688,7 @@ router.get('/:id([0-9a-fA-F-]{36})/thumbnail', async (req: Request, res: Respons
         await serveLocalPathWithRange(req, res, thumbPath, 'image/webp', 'public, max-age=604800');
     } catch (error) {
         console.error('获取缩略图失败:', error);
-        if (!res.headersSent) res.status(500).json({ error: '获取缩略图失败' });
-        else res.destroy(error instanceof Error ? error : undefined);
+        sendMediaError(res, error);
     }
 });
 

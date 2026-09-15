@@ -7,7 +7,7 @@ export const formatNumber = (value: number, locale?: AppLocale | string, options
 export const formatDateTime = (value: string | number | Date, locale?: AppLocale | string, options: Intl.DateTimeFormatOptions = {}) => {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat(intl(locale), { dateStyle: 'medium', timeStyle: 'short', hour12: false, ...options }).format(date);
+  return new Intl.DateTimeFormat(intl(locale), { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', timeZoneName:'short', hour12: false, ...options }).format(date);
 };
 export const formatDate = (value: string | number | Date, locale?: AppLocale | string, options: Intl.DateTimeFormatOptions = {}) => {
   const date = value instanceof Date ? value : new Date(value);

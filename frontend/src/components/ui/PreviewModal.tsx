@@ -1,5 +1,5 @@
-import { motion, AnimatePresence } from "framer-motion";
-import { X, FileText, Download, Video, Music, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, RotateCcw, Copy, Check, Info, RefreshCw } from "lucide-react";
+import { motion } from "framer-motion";
+import { X, FileText, Download, Video, Music, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, RotateCcw, Copy, Check, Info, RefreshCw } from "./icons";
 import type { FileData } from "./FileCard";
 import { Button } from "./Button";
 import { useEffect, useRef, useState } from "react";
@@ -11,6 +11,7 @@ import { authService } from "../../services/auth";
 import { Dialog } from "./Dialog";
 import { useTranslation } from "react-i18next";
 import { tr } from "../../i18n/runtime";
+import './overlays.css';
 
 interface PreviewModalProps {
     file: FileData | null;
@@ -76,7 +77,7 @@ const VideoPlayer = ({ file }: { file: FileData }) => {
                     <p className="text-base font-medium text-white">{t('files.ui.preview.videoFailed')}</p>
                     <p className="mx-auto max-w-xs text-xs text-white/60">{errorMessage}</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-center gap-2">
                     <Button onClick={handleReload} size="sm" variant="secondary" className="gap-2">
                         <RefreshCw className="h-4 w-4" />
                         {t('files.ui.preview.reload')}
@@ -106,7 +107,7 @@ const VideoPlayer = ({ file }: { file: FileData }) => {
                 preload="metadata"
                 poster={file.thumbnailUrl}
                 playsInline
-                className="max-h-[82vh] max-w-[94vw] bg-black h-auto w-auto rounded-lg shadow-2xl"
+                className="tv-preview-media bg-black"
                 onLoadedMetadata={() => setIsLoading(false)}
                 onCanPlay={() => { setIsLoading(false); setIsBuffering(false); }}
                 onWaiting={() => setIsBuffering(true)}
@@ -147,11 +148,11 @@ const AudioPlayer = ({ file }: { file: FileData }) => {
 
     return (
         <div className="flex w-full max-w-md flex-col items-center justify-center gap-6 p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex h-28 w-28 items-center justify-center rounded-full bg-white/10 shadow-2xl backdrop-blur-md">
-                <Music className="h-14 w-14 text-white" />
+            <div className="tv-preview-audio-icon">
+                <Music className="h-10 w-10 text-white" />
             </div>
             <div className="max-w-full space-y-1 text-center">
-                <h3 className="truncate text-lg font-medium text-white">{file.name}</h3>
+                <h3 className="tv-wrap text-base font-medium text-white">{file.name}</h3>
                 <p className="text-sm text-white/60">{file.size}</p>
             </div>
             {hasError ? (
@@ -230,15 +231,18 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
 
     useEffect(() => {
         const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === "Escape") onClose();
+            // Dialog owns Escape and the shared scroll lock, including details.
+            if (e.defaultPrevented || detailsOpen || mobileMenu.isOpen) return;
             if (file?.type === 'image' && e.key === "ArrowLeft") navigateImageBy(-1);
             if (file?.type === 'image' && e.key === "ArrowRight") navigateImageBy(1);
         };
         window.addEventListener("keydown", handleEsc);
+        return () => window.removeEventListener("keydown", handleEsc);
+    }, [file, currentImageIndex, detailsOpen, mobileMenu.isOpen, onNavigate]);
 
+    useEffect(() => {
         if (file) {
             openedAtRef.current = Date.now();
-            document.body.style.overflow = 'hidden';
             setScale(1);
             setImageLoaded(false);
             setImageError(false);
@@ -247,10 +251,6 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
             setIdCopied(false);
         }
 
-        return () => {
-            window.removeEventListener("keydown", handleEsc);
-            document.body.style.overflow = '';
-        };
     }, [onClose, file, currentImageIndex]);
 
     const handleDownload = async (e?: React.MouseEvent) => {
@@ -358,7 +358,7 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                             src={file.thumbnailUrl}
                             alt=""
                             aria-hidden="true"
-                            className={`absolute max-w-[90vw] max-h-[80vh] object-contain rounded-lg blur-md opacity-40 transition-opacity ${imageLoaded ? 'opacity-0' : 'opacity-40'}`}
+                            className={`tv-preview-media tv-preview-media--thumbnail ${imageLoaded ? 'opacity-0' : 'opacity-40'}`}
                         />
                     )}
                     {imageError ? (
@@ -366,7 +366,7 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                             <FileText className="h-16 w-16 opacity-60" />
                             <p>{t('files.ui.preview.imageFailed')}</p>
                             <p className="max-w-xs text-center text-xs text-white/60">{imageErrorMessage}</p>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap justify-center gap-2">
                                 <Button
                                     variant="secondary"
                                     onClick={(e) => {
@@ -398,7 +398,7 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                                 setImageError(true);
                                 void resolveMediaErrorMessage(file.id, t('files.ui.preview.mediaUnavailable')).then(setImageErrorMessage);
                             }}
-                            className={`max-w-[94vw] max-h-[82vh] object-contain shadow-2xl rounded-lg cursor-grab active:cursor-grabbing transition-opacity ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                            className={`tv-preview-media tv-preview-media--image ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
                         />
                     )}
                 </div>
@@ -415,11 +415,11 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
             return <AudioPlayer file={file} />;
         }
         return (
-            <div className="flex flex-col items-center justify-center gap-6 text-white/80 p-12 max-w-md text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-col items-center justify-center gap-6 text-white/80 p-6 sm:p-10 max-w-md min-w-0 text-center" onClick={(e) => e.stopPropagation()}>
                 <FileText className="h-24 w-24 opacity-50" />
                 <div className="space-y-2">
                     <p className="text-lg font-medium text-white">{t('files.ui.preview.unsupported')}</p>
-                    <p className="text-sm text-white/60">{file.name}</p>
+                    <p className="tv-wrap text-sm text-white/60">{file.name}</p>
                 </div>
                 <Button variant="secondary" size="lg" onClick={handleDownload} className="mt-4 gap-2">
                     <Download className="h-5 w-5" />
@@ -432,29 +432,33 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
     if (!file) return null;
 
     const modalContent = (
-        <Dialog open={Boolean(file)} onClose={onClose} labelledBy="preview-title" className="!max-h-none !max-w-none h-screen w-screen overflow-hidden bg-black p-0">
+        <Dialog open={Boolean(file)} onClose={onClose} closeOnBackdrop={false} labelledBy="preview-title" className="tv-preview-dialog">
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.2 }}
-                    className="h-screen w-screen bg-black flex flex-col"
+                    className="tv-preview-layout"
                     onClick={handleBackdropClose}
                 >
                     {/* 顶部工具栏 */}
                     <div
-                        className="flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/80 to-transparent shrink-0"
+                        className="tv-preview-toolbar"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="min-w-0 flex-1 text-white">
-                            <h3 id="preview-title" className="max-w-[42vw] truncate text-sm font-medium sm:max-w-[50vw]">{file?.name}</h3>
+                        <div className="tv-preview-heading">
+                            <span className="tv-modal-icon" aria-hidden="true"><FileText className="h-5 w-5" /></span>
+                            <div className="tv-preview-heading__text">
+                                <h3 id="preview-title" className="tv-preview-title" title={file.name}>{file.name}</h3>
+                                <p className="tv-preview-meta"><span>{file.size}</span><span>{file.date}</span></p>
+                            </div>
                         </div>
 
-                        <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+                        <div className="tv-preview-actions">
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-9 w-9 rounded-full text-white/80 hover:bg-white/10 hover:text-white"
+                                className="tv-overlay-icon-button"
                                 onClick={(e) => { e.stopPropagation(); setDetailsOpen(true); }}
                                 title={t('files.ui.preview.details')}
                                 aria-label={t('files.ui.preview.details')}
@@ -466,18 +470,18 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="text-white/80 hover:text-white hover:bg-white/10 rounded-full h-9 w-9"
+                                        className="tv-overlay-icon-button"
                                         onClick={handleZoomOut}
                                         title={t('files.ui.preview.zoomOut')}
                                         aria-label={t('files.ui.preview.zoomOutImage')}
                                     >
                                         <ZoomOut className="h-5 w-5" />
                                     </Button>
-                                    <span className="text-white/60 text-xs w-10 text-center">{Math.round(scale * 100)}%</span>
+                                    <span className="tv-preview-zoom-value">{Math.round(scale * 100)}%</span>
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="text-white/80 hover:text-white hover:bg-white/10 rounded-full h-9 w-9"
+                                        className="tv-overlay-icon-button"
                                         onClick={handleZoomIn}
                                         title={t('files.ui.preview.zoomIn')}
                                         aria-label={t('files.ui.preview.zoomInImage')}
@@ -487,23 +491,24 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="text-white/80 hover:text-white hover:bg-white/10 rounded-full h-9 w-9"
+                                        className="tv-overlay-icon-button"
                                         onClick={handleResetZoom}
                                         title={t('files.ui.preview.resetZoom')}
                                         aria-label={t('files.ui.preview.resetImageZoom')}
                                     >
                                         <RotateCcw className="h-4 w-4" />
                                     </Button>
-                                    <div className="mx-1 h-5 w-px bg-white/20" />
+                                    <div className="tv-preview-divider" />
                                 </div>
                             )}
                             {(file.type === 'image' || file.type === 'video') && (
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="text-white/80 hover:text-white hover:bg-white/10 rounded-full h-9 w-9"
+                                    className="tv-overlay-icon-button"
                                     onClick={handleOpenOriginal}
                                     title={t('files.ui.preview.viewOriginal')}
+                                    aria-label={t('files.ui.preview.viewOriginal')}
                                 >
                                     <Maximize2 className="h-4 w-4" />
                                 </Button>
@@ -511,81 +516,69 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="text-white/80 hover:text-white hover:bg-white/10 rounded-full h-9 w-9"
+                                className="tv-overlay-icon-button"
                                 onClick={handleDownload}
+                                title={t('files.ui.actions.download')}
+                                aria-label={t('files.ui.actions.download')}
                             >
                                 <Download className="h-5 w-5" />
                             </Button>
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="text-white/80 hover:text-white hover:bg-white/10 rounded-full h-9 w-9"
+                                className="tv-overlay-icon-button"
                                 onClick={onClose}
+                                title={t('common.actions.close')}
+                                aria-label={t('common.actions.close')}
                             >
                                 <X className="h-6 w-6" />
                             </Button>
                         </div>
                     </div>
 
-                    {actionError && (
-                        <div role="alert" className="absolute left-1/2 top-16 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-red-300/40 bg-red-950/90 px-4 py-3 text-sm text-red-100 shadow-xl">
+                    {actionError && !detailsOpen && (
+                        <div role="alert" className="tv-preview-action-error tv-notification tv-notification--error">
                             {actionError}
                         </div>
                     )}
 
-                    <AnimatePresence>
-                        {detailsOpen && (
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className="absolute inset-0 z-40 flex items-start justify-center bg-black/60 px-4 pt-20 backdrop-blur-sm sm:items-center sm:pt-4"
-                                onClick={(e) => { e.stopPropagation(); setDetailsOpen(false); }}
-                            >
-                                <motion.div
-                                    initial={{ opacity: 0, y: -12, scale: 0.98 }}
-                                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                                    exit={{ opacity: 0, y: -8, scale: 0.98 }}
-                                    className="w-full max-w-md rounded-lg border border-white/15 bg-zinc-950 p-4 text-white shadow-2xl"
-                                    role="dialog"
-                                    aria-modal="true"
-                                    aria-labelledby="preview-file-details-title"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    <div className="mb-4 flex items-center justify-between">
-                                        <h2 id="preview-file-details-title" className="text-base font-medium">{t('files.ui.preview.details')}</h2>
+                    <Dialog open={detailsOpen} onClose={() => setDetailsOpen(false)} labelledBy="preview-file-details-title">
+                                <div className="tv-modal-content" onClick={(e) => e.stopPropagation()}>
+                                    <div className="tv-modal-header">
+                                        <span className="tv-modal-icon" aria-hidden="true"><Info className="h-5 w-5" /></span>
+                                        <h2 id="preview-file-details-title" className="tv-modal-title tv-modal-heading">{t('files.ui.preview.details')}</h2>
                                         <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="h-8 w-8 rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                                            className="tv-overlay-icon-button"
                                             onClick={() => setDetailsOpen(false)}
                                             aria-label={t('files.ui.preview.closeDetails')}
                                         >
                                             <X className="h-4 w-4" />
                                         </Button>
                                     </div>
-                                    <dl className="space-y-3 text-sm">
+                                    <dl className="tv-preview-details tv-modal-body">
                                         <div>
-                                            <dt className="mb-1 text-xs text-white/50">{t('files.ui.preview.fileName')}</dt>
-                                            <dd className="break-words text-white/90">{file.name}</dd>
+                                            <dt>{t('files.ui.preview.fileName')}</dt>
+                                            <dd>{file.name}</dd>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-3">
+                                        <div className="tv-preview-details__columns">
                                             <div>
-                                                <dt className="mb-1 text-xs text-white/50">{t('files.ui.preview.size')}</dt>
-                                                <dd className="text-white/90">{file.size}</dd>
+                                                <dt>{t('files.ui.preview.size')}</dt>
+                                                <dd>{file.size}</dd>
                                             </div>
                                             <div>
-                                                <dt className="mb-1 text-xs text-white/50">{t('files.ui.preview.time')}</dt>
-                                                <dd className="text-white/90">{file.date}</dd>
+                                                <dt>{t('files.ui.preview.time')}</dt>
+                                                <dd>{file.date}</dd>
                                             </div>
                                         </div>
                                         <div>
-                                            <dt className="mb-1 text-xs text-white/50">{t('files.ui.preview.fileId')}</dt>
-                                            <dd className="flex items-start gap-2 rounded-md bg-white/5 p-2">
-                                                <span className="min-w-0 flex-1 break-all font-mono text-xs text-white/80">ID: {file.id}</span>
+                                            <dt>{t('files.ui.preview.fileId')}</dt>
+                                            <dd className="tv-preview-file-id">
+                                                <span className="min-w-0 flex-1 break-all font-mono text-xs">ID: {file.id}</span>
                                                 <button
                                                     type="button"
-                                                    className="shrink-0 rounded p-1 text-white/70 hover:bg-white/10 hover:text-white"
+                                                    className="tv-overlay-icon-button"
                                                     onClick={handleCopyId}
                                                     title={idCopied ? t('files.ui.preview.copiedFileId') : t('files.ui.preview.copyFileId')}
                                                     aria-label={idCopied ? t('files.ui.preview.fileIdCopied') : t('files.ui.preview.copyFileId')}
@@ -595,14 +588,13 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                                             </dd>
                                         </div>
                                     </dl>
-                                </motion.div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                                    {actionError && <p role="alert" className="tv-modal-section tv-form-error">{actionError}</p>}
+                                </div>
+                    </Dialog>
 
                     {/* 内容区域 - 占满剩余空间并居中显示 */}
                     <div 
-                        className="flex-1 flex items-center justify-center overflow-hidden relative"
+                        className={`tv-preview-stage ${file.type === 'audio' || !['image', 'video'].includes(file.type) ? 'tv-preview-stage--document' : ''}`}
                         onClick={(e) => e.stopPropagation()}
                         onTouchStart={handleTouchStart}
                         onTouchEnd={handleTouchEnd}
@@ -610,7 +602,7 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                         {showImageNavigation && canGoPrevious && (
                             <button
                                 type="button"
-                                className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-20 flex h-12 w-12 md:h-14 md:w-14 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/90 shadow-lg backdrop-blur-md transition hover:bg-white/15 active:scale-95"
+                                className="tv-preview-navigation tv-preview-navigation--previous"
                                 onClick={(e) => { e.stopPropagation(); navigateImageBy(-1); }}
                                 aria-label={t('files.ui.preview.previousImage')}
                                 title={t('files.ui.preview.previousImage')}
@@ -621,7 +613,7 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                         {showImageNavigation && canGoNext && (
                             <button
                                 type="button"
-                                className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-20 flex h-12 w-12 md:h-14 md:w-14 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/90 shadow-lg backdrop-blur-md transition hover:bg-white/15 active:scale-95"
+                                className="tv-preview-navigation tv-preview-navigation--next"
                                 onClick={(e) => { e.stopPropagation(); navigateImageBy(1); }}
                                 aria-label={t('files.ui.preview.nextImage')}
                                 title={t('files.ui.preview.nextImage')}
@@ -630,7 +622,7 @@ export const PreviewModal = ({ file, onClose, onToggleFavorite, files = [], onNa
                             </button>
                         )}
                         {showImageNavigation && (
-                            <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/10 bg-black/45 px-3 py-1.5 text-xs text-white/80 shadow-lg backdrop-blur-md">
+                            <div className="tv-preview-swipe-hint">
                                 {t('files.ui.preview.swipeHint', { current: currentImageIndex + 1, total: imageFiles.length })}
                             </div>
                         )}

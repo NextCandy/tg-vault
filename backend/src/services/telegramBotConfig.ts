@@ -28,6 +28,14 @@ export interface TelegramBotPublicConfig {
     source: 'web' | 'environment' | 'none';
     status: ReturnType<typeof getTelegramBotStatus>['status'];
     runtimeReady: boolean;
+    checkedAt: string;
+    nextRetryAt: string | null;
+    retryAllowedAt: string | null;
+    attempt: number;
+    retryAttempt: number;
+    busy: boolean;
+    cleanupBlocked: boolean;
+    connected: boolean;
     credentialProbeOnly: boolean;
     bot: { username: string | null; displayName: string | null } | null;
     lastConnectedAt: string | null;
@@ -122,6 +130,14 @@ export async function getTelegramBotPublicConfig(): Promise<TelegramBotPublicCon
         source: effective.source,
         status: status.status,
         runtimeReady: status.status === 'ready',
+        checkedAt: status.checkedAt,
+        nextRetryAt: status.nextRetryAt || null,
+        retryAllowedAt: status.retryAllowedAt || null,
+        attempt: status.attempt || 0,
+        retryAttempt: status.attempt || 0,
+        busy: status.busy || false,
+        cleanupBlocked: status.cleanupBlocked || false,
+        connected: status.connected || false,
         credentialProbeOnly: false,
         bot: lastBotIdentity,
         lastConnectedAt: status.lastConnectedAt,

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { FolderPlus } from "lucide-react";
+import { FolderPlus } from "./icons";
 import { useTranslation } from "react-i18next";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 import { performAsyncMutation } from "../../services/asyncMutation";
+import './overlays.css';
 
 interface CreateFolderModalProps {
     isOpen: boolean;
@@ -38,70 +39,74 @@ export const CreateFolderModal = ({ isOpen, onClose, onConfirm, currentFolder }:
     };
 
     const handleClose = () => {
+        if (isSubmitting) return;
         setFolderName("");
         onClose();
     };
 
     const modalContent = (
-        <Dialog open={isOpen} onClose={handleClose} closeOnEscape={!isSubmitting} closeOnBackdrop={!isSubmitting} labelledBy="create-folder-title" className="relative w-full max-w-md bg-background border border-border rounded-xl shadow-2xl overflow-hidden z-[70] flex flex-col">
-            <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 10 }} transition={{ type: "spring", stiffness: 350, damping: 25 }}>
+        <Dialog open={isOpen} onClose={handleClose} closeOnEscape={!isSubmitting} closeOnBackdrop={!isSubmitting} labelledBy="create-folder-title" describedBy="create-folder-description">
+            <motion.div className="tv-modal-content" aria-busy={isSubmitting} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.16 }}>
                     {/* Header */}
-                    <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-muted/30">
-                        <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <div className="tv-modal-header">
+                        <div className="tv-modal-icon">
                             <FolderPlus className="h-5 w-5" />
                         </div>
-                        <div className="flex flex-col">
-                            <h3 id="create-folder-title" className="font-semibold text-lg leading-none tracking-tight">
+                        <div className="tv-modal-heading">
+                            <h3 id="create-folder-title" className="tv-modal-title">
                                 {t('files.ui.createFolder.title')}
                             </h3>
-                            <p className="text-sm text-muted-foreground mt-1.5">
+                            <p id="create-folder-description" className="tv-modal-description">
                                 {t('files.ui.createFolder.location', { location: currentFolder || t('files.root') })}
                             </p>
                         </div>
                     </div>
 
                     {/* Content */}
-                    <div className="p-6">
+                    <div className="tv-modal-body">
                         <div className="space-y-4">
                             <div className="space-y-2">
-                                <label htmlFor="newFolderName" className="text-sm font-medium text-foreground">
+                                <label htmlFor="newFolderName" className="tv-field-label">
                                     {t('files.ui.createFolder.nameLabel')}
                                 </label>
                                 <input
                                     id="newFolderName"
                                     type="text"
-                                    className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                                    className="tv-modal-field"
+                                    aria-invalid={Boolean(submitError)}
+                                    aria-describedby={submitError ? "create-folder-error" : undefined}
                                     placeholder={t('files.ui.createFolder.placeholder')}
                                     value={folderName}
                                     onChange={(e) => setFolderName(e.target.value)}
                                     disabled={isSubmitting}
-                                    autoFocus
+                                    // Dialog owns initial focus and captures the opener first.
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter") void handleConfirm();
                                     }}
                                 />
                             </div>
-                            {submitError && <p role="alert" className="text-sm text-destructive">{submitError}</p>}
+                            {submitError && <p id="create-folder-error" role="alert" className="tv-form-error">{submitError}</p>}
                         </div>
                     </div>
 
                     {/* Footer - Buttons */}
-                    <div className="flex items-center gap-3 px-6 py-4 border-t border-border bg-muted/30">
-                        <Button
-                            className="flex-1 h-10 px-5 text-sm font-medium bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm"
-                            onClick={handleConfirm}
-                            disabled={isSubmitting || !folderName.trim()}
-                        >
-                            {isSubmitting ? t('files.ui.createFolder.creating') : t('files.ui.createFolder.confirm')}
-                        </Button>
+                    <div className="tv-modal-footer">
                         <Button
                             variant="outline"
-                            className="flex-1 h-10 px-5 text-sm font-medium border-border/80 hover:bg-muted"
+                            className="tv-modal-action"
                             onClick={handleClose}
                             disabled={isSubmitting}
                         >
                             {t('common.actions.cancel')}
                         </Button>
+                        <Button
+                            className="tv-modal-action"
+                            onClick={handleConfirm}
+                            disabled={isSubmitting || !folderName.trim()}
+                        >
+                            {isSubmitting ? t('files.ui.createFolder.creating') : t('files.ui.createFolder.confirm')}
+                        </Button>
+
                     </div>
             </motion.div>
         </Dialog>

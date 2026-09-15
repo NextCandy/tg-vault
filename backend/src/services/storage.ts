@@ -1201,7 +1201,7 @@ export class GoogleDriveStorageProvider implements IStorageProvider {
             return { available: true };
         } catch (error: any) {
             console.error('[GoogleDrive] Readability probe failed:', error.message);
-            throw new Error(`Google Drive readability probe failed: ${error.message}`);
+            throw error; // Preserve upstream status/reason for media error classification.
         }
     }
 
@@ -1224,7 +1224,7 @@ export class GoogleDriveStorageProvider implements IStorageProvider {
             return stream;
         } catch (error: any) {
             console.error('[GoogleDrive] Get stream failed:', error.message);
-            throw new Error(`Google Drive get stream failed: ${error.message}`);
+            throw error; // Preserve upstream status/reason for media error classification.
         }
     }
 

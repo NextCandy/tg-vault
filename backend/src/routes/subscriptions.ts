@@ -42,13 +42,13 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
                         ) AS ad_stats
                  FROM telegram_channel_subscriptions s
                  LEFT JOIN telegram_subscription_ad_decisions d ON d.subscription_id = s.id
-                 WHERE s.enabled = TRUE
+                 WHERE s.enabled = TRUE OR s.disabled_reason IS DISTINCT FROM '用户手动取消订阅'
                  GROUP BY s.id
                  ORDER BY s.updated_at DESC
                  LIMIT $1 OFFSET $2`,
                 [limit, offset],
             ),
-            query(`SELECT COUNT(*)::int AS total FROM telegram_channel_subscriptions s WHERE s.enabled = TRUE`),
+            query(`SELECT COUNT(*)::int AS total FROM telegram_channel_subscriptions s WHERE s.enabled = TRUE OR s.disabled_reason IS DISTINCT FROM '用户手动取消订阅'`),
             query(
                 `SELECT COUNT(DISTINCT s.id)::int AS enabled,
                         COUNT(DISTINCT s.id) FILTER (WHERE s.ad_filter_mode <> 'off')::int AS protected,
@@ -75,21 +75,46 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 router.patch('/:subscriptionId', requireAuth, async (req: Request, res: Response) => {
     const subscriptionId = validateUuid(req.params.subscriptionId);
     if (!subscriptionId) return res.status(400).json({ error: '无效的订阅 ID' });
-    const mode = String(req.body?.adFilterMode || '') as TelegramAdFilterMode;
-    if (!MODES.has(mode)) return res.status(400).json({ error: '无效的广告过滤模式' });
+    // Web sessions are instance-administrator sessions (not Telegram user identities).
+    // Only the exact selected UUID may be mutated; never accept a user/source selector.
+    const enabled = req.body?.enabled;
+    const mode = req.body?.adFilterMode as TelegramAdFilterMode;
+    if (enabled !== undefined && typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled 必须是布尔值' });
+    if ((enabled === undefined && !MODES.has(mode)) || (enabled !== undefined && mode !== undefined)) {
+        return res.status(400).json({ error: '请仅提交 enabled 或有效的 adFilterMode' });
+    }
     try {
         const result = await query(
-            `UPDATE telegram_channel_subscriptions
-             SET ad_filter_mode = $2, updated_at = NOW()
-             WHERE id = $1
-             RETURNING *`,
-            [subscriptionId, mode],
+            enabled !== undefined
+                ? `UPDATE telegram_channel_subscriptions
+                   SET enabled = $2, disabled_reason = CASE WHEN $2 THEN NULL ELSE '用户手动暂停订阅' END,
+                       disabled_at = CASE WHEN $2 THEN NULL ELSE NOW() END, updated_at = NOW()
+                   WHERE id = $1 RETURNING *`
+                : `UPDATE telegram_channel_subscriptions SET ad_filter_mode = $2, updated_at = NOW()
+                   WHERE id = $1 RETURNING *`,
+            [subscriptionId, enabled !== undefined ? enabled : mode],
         );
         if (!result.rowCount) return res.status(404).json({ error: '订阅不存在' });
         res.json({ subscription: result.rows[0] });
     } catch (error) {
         console.error('更新订阅过滤模式失败:', error);
         res.status(500).json({ error: '更新订阅过滤模式失败' });
+    }
+});
+
+// Unlike Bot unsubscribe (soft-disable), Web deletion permanently removes the
+// subscription and its cascading filter rules/decisions. Jobs and files are independent.
+router.delete('/:subscriptionId', requireAuth, async (req: Request, res: Response) => {
+    const subscriptionId = validateUuid(req.params.subscriptionId);
+    if (!subscriptionId) return res.status(400).json({ error: '无效的订阅 ID' });
+    if (req.body?.confirmSubscriptionId !== subscriptionId) return res.status(400).json({ error: '请确认要删除的订阅 ID' });
+    try {
+        const result = await query('DELETE FROM telegram_channel_subscriptions WHERE id = $1 RETURNING id', [subscriptionId]);
+        if (!result.rowCount) return res.status(404).json({ error: '订阅不存在' });
+        res.json({ success: true, subscriptionId });
+    } catch (error) {
+        console.error('删除订阅失败:', error);
+        res.status(500).json({ error: '删除订阅失败' });
     }
 });
 

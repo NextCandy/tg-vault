@@ -63,9 +63,8 @@ export function buildSubscriptionManagePanel(rows: SubscriptionPresentationRow[]
         ...(page.totalPages > 1 ? [t(locale, 'bot.subscription.page', { page: page.page + 1, totalPages: page.totalPages, count: rows.length })] : []),
         '',
         page.visibleRows.length > 0
-            ? page.visibleRows.map((row, index) => buildSubscriptionDisplayLines(row, page.startIndex + index, locale)).join('\n\n')
+            ? t(locale, 'bot.subscription.selectChannel', { count: rows.length })
             : t(locale, 'bot.subscription.empty'),
-        '',
-        t(locale, 'bot.subscription.manageHint'),
+
     ].join('\n');
 }

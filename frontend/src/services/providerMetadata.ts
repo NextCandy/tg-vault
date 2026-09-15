@@ -1,9 +1,10 @@
-import { Cloud, Database, HardDrive, Network, Package, Server, type LucideIcon } from 'lucide-react';
+import { Cloud, Database, HardDrive, Network, Package, Server } from '../components/ui/icons';
+import type { Icon } from '@phosphor-icons/react';
 
 export interface ProviderMetadata {
     id: string;
     label: string;
-    icon: LucideIcon;
+    icon: Icon;
 }
 
 const providers: Record<string, ProviderMetadata> = {

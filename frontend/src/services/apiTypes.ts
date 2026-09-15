@@ -279,6 +279,14 @@ export interface TelegramBotPublicConfig {
     status: 'not_configured' | 'starting' | 'ready' | 'reconnecting' | 'auth_failed' | 'error' | 'stopped';
     runtimeReady: boolean;
     credentialProbeOnly: boolean;
+    checkedAt?: string | null;
+    nextRetryAt?: string | null;
+    retryAttempt?: number;
+    attempt?: number;
+    connected?: boolean;
+    busy?: boolean;
+    cleanupBlocked?: boolean;
+    retryAllowedAt?: string | null;
     bot: { username: string | null; displayName: string | null } | null;
     lastConnectedAt: string | null;
     lastError: string | null;

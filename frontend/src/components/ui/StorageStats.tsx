@@ -1,4 +1,4 @@
-import { HardDrive, FileStack } from "lucide-react";
+import { HardDrive, FileStack } from "./icons";
 import type { StorageStats as StorageStatsType } from "../../services/api";
 import { useTranslation } from "react-i18next";
 

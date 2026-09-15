@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import './subscriptions-audit.css';
+import { formatDateTime } from '../../i18n/format';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, Ban, Check, CheckCircle2, Filter, ListFilter, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertCircle, Ban, CheckCircle2, Filter, ListFilter, Plus, RefreshCw, ShieldCheck, Trash2 } from "../ui/icons";
 import { Button } from '../ui/Button';
+import { Dialog } from '../ui/Dialog';
 import fileApi from '../../services/api';
 import type {
     TelegramAdDecision,
@@ -33,24 +36,65 @@ const RULE_KINDS: Array<{ value: TelegramAdRuleKind; labelKey: string; placehold
 
 function dateLabel(value: string | null, locale: string, emptyLabel: string): string {
     if (!value) return emptyLabel;
-    return new Intl.DateTimeFormat(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+    return formatDateTime(value, locale);
 }
 
 function modeTone(mode: TelegramAdFilterMode): string {
-    if (mode === 'conservative') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/35 dark:text-emerald-300';
-    if (mode === 'aggressive') return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300';
-    return 'border-border bg-muted text-muted-foreground';
+    if (mode === 'conservative') return 'op-badge--success';
+    if (mode === 'aggressive') return 'op-badge--warning';
+    return 'op-badge--muted';
 }
 
 function decisionTone(decision: TelegramAdDecision['decision']): string {
-    if (decision === 'blocked') return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/35 dark:text-red-300';
-    if (decision === 'review') return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300';
-    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/35 dark:text-emerald-300';
+    if (decision === 'blocked') return 'op-badge--danger';
+    if (decision === 'review') return 'op-badge--warning';
+    return 'op-badge--success';
 }
 
 export function SubscriptionCenter({ onUnauthorized }: SubscriptionCenterProps) {
     const { t, i18n } = useTranslation();
+    const language = i18n.resolvedLanguage || i18n.language;
+    const audit = language.startsWith('zh') ? {
+        directory: '选择频道', directoryHelp: '点击频道卡片，切换右侧设置和审核记录。', current: '当前频道', selected: '已选择', channelSettings: '过滤设置', scope: '设置和审核记录仅针对当前频道。切换频道将清空未提交的规则。', loadFailed: '加载失败，请点击刷新重试。', zero: '所有统计均为零', stats: '查看统计', attention: '待审核记录',
+        bot: '打开 Telegram Bot', settings: '查看 Bot 连接设置', steps: '如何添加或恢复订阅',
+        step1: '打开已配置的 Telegram Bot 私聊，发送 /tg_sub。',
+        step2: '新增：按向导发送频道用户名或链接，选择目标目录并确认。',
+        step3: '恢复：在订阅管理中选择已有订阅，按向导恢复同步；已保存文件不会被删除。',
+        unavailable: '未获取到可验证的 Bot 用户名，请先检查连接设置。',
+    } : language.startsWith('ru') ? {
+        directory: 'Выберите канал', directoryHelp: 'Нажмите на карточку канала, чтобы открыть его настройки и записи.', current: 'Текущий канал', selected: 'Выбран', channelSettings: 'Настройки фильтра', scope: 'Настройки и записи относятся только к текущему каналу. При смене канала несохранённое правило сбрасывается.', loadFailed: 'Не удалось загрузить. Нажмите «Обновить», чтобы повторить.', zero: 'Все показатели равны нулю', stats: 'Показать статистику', attention: 'Записи на проверку',
+        bot: 'Открыть Telegram-бота', settings: 'Настройки подключения бота', steps: 'Как добавить или возобновить подписку',
+        step1: 'Откройте личный чат с настроенным Telegram-ботом и отправьте /tg_sub.',
+        step2: 'Добавление: отправьте имя или ссылку канала, выберите папку и подтвердите по указаниям мастера.',
+        step3: 'Возобновление: выберите существующую подписку в управлении подписками и следуйте подсказкам. Сохранённые файлы останутся.',
+        unavailable: 'Не удалось получить проверяемое имя бота. Проверьте настройки подключения.',
+    } : {
+        directory: 'Choose a channel', directoryHelp: 'Select a channel card to open its settings and review records.', current: 'Current channel', selected: 'Selected', channelSettings: 'Filter settings', scope: 'Settings and review records apply only to this channel. Switching channels clears the unsaved rule.', loadFailed: 'Could not load. Use Refresh to try again.', zero: 'All statistics are zero', stats: 'Show statistics', attention: 'Pending review records',
+        bot: 'Open Telegram Bot', settings: 'Bot connection settings', steps: 'How to add or resume a subscription',
+        step1: 'Open a private chat with your configured Telegram Bot and send /tg_sub.',
+        step2: 'To add: send the channel username or link, choose a destination folder and confirm in the wizard.',
+        step3: 'To resume: select an existing subscription in subscription management and follow the prompts. Saved files are retained.',
+        unavailable: 'A verifiable Bot username is unavailable. Check the connection settings first.',
+    };
+    const controls = language.startsWith('zh') ? {
+        pause: '暂停订阅', resume: '恢复订阅', remove: '删除订阅', cancel: '取消', failed: '订阅操作失败，请重试。',
+        pauseHelp: '暂停后不再安排后续扫描；已开始的扫描和已创建的下载任务可能继续，已保存文件保留。',
+        resumeHelp: '恢复后按原进度和扫描计划继续同步，不会重置进度。',
+        deleteHelp: '永久删除该订阅及其过滤规则、审核记录，无法撤销。不会删除已保存文件，也不会取消已开始的扫描或已创建的下载任务；请在任务中心单独管理。',
+    } : language.startsWith('ru') ? {
+        pause: 'Приостановить подписку', resume: 'Возобновить подписку', remove: 'Удалить подписку', cancel: 'Отмена', failed: 'Не удалось изменить подписку. Повторите попытку.',
+        pauseHelp: 'Новые сканирования не планируются. Начатые сканирования и созданные задания загрузки могут продолжаться. Сохранённые файлы остаются.',
+        resumeHelp: 'Синхронизация продолжится с сохранённой позиции по прежнему расписанию, без сброса прогресса.',
+        deleteHelp: 'Подписка, её правила фильтрации и записи проверки будут удалены безвозвратно. Сохранённые файлы останутся. Начатые сканирования и созданные задания загрузки не отменяются; управляйте заданиями отдельно в центре задач.',
+    } : {
+        pause: 'Pause subscription', resume: 'Resume subscription', remove: 'Delete subscription', cancel: 'Cancel', failed: 'Subscription action failed. Please retry.',
+        pauseHelp: 'Stops scheduling future scans. Scans already started and existing download jobs may continue. Saved files are retained.',
+        resumeHelp: 'Continues from the saved cursor on the existing scan schedule, without resetting progress.',
+        deleteHelp: 'Permanently deletes this subscription, its filter rules and review records. This cannot be undone. Saved files are retained. Scans already started and existing download jobs are not cancelled; manage jobs separately in the task center.',
+    };
     const locale = i18n.resolvedLanguage || i18n.language;
+    const [botUsername, setBotUsername] = useState<string | null>(null);
+    useEffect(() => { let live = true; void fileApi.getTelegramBotConfig().then(config => { if (live) setBotUsername(typeof config.bot?.username === 'string' && /^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(config.bot.username) ? config.bot.username : null); }).catch(() => {}); return () => { live = false; }; }, []);
     const [tab, setTab] = useState<Tab>('subscriptions');
     const [subscriptions, setSubscriptions] = useState<TelegramSubscription[]>([]);
     const [subscriptionTotal, setSubscriptionTotal] = useState(0);
@@ -67,6 +111,8 @@ export function SubscriptionCenter({ onUnauthorized }: SubscriptionCenterProps) 
     const [rulePattern, setRulePattern] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const mutationLock = useRef(false);
+    const [deleteTarget, setDeleteTarget] = useState<TelegramSubscription | null>(null);
     const [error, setError] = useState<string | null>(null);
     const selected = subscriptions.find(item => item.id === selectedId) || null;
 
@@ -75,169 +121,303 @@ export function SubscriptionCenter({ onUnauthorized }: SubscriptionCenterProps) 
         setError(errorMessage(caught, fallback));
     }, [onUnauthorized]);
 
+    // Each request family has its own generation. Mutation refreshes use the same
+    // guarded loaders, so an older response cannot overwrite a newer scope.
+    const subscriptionGeneration = useRef(0);
+    const ruleGeneration = useRef(0);
+    const decisionGeneration = useRef(0);
+    const [directoryLoading, setDirectoryLoading] = useState(false);
+    const [rulesLoading, setRulesLoading] = useState(false);
+    const [rulesFailed, setRulesFailed] = useState(false);
+    const [decisionsFailed, setDecisionsFailed] = useState(false);
+    const [decisionsLoading, setDecisionsLoading] = useState(false);
+    const [rulesScope, setRulesScope] = useState<string | null>(null);
+    const [decisionsScope, setDecisionsScope] = useState<string | null>(null);
+    const decisionKey = `${selectedId}:${decisionFilter}:${decisionPage}:${tab}`;
+    const rulesReady = !!selectedId && rulesScope === selectedId && !rulesLoading;
+    const decisionsReady = !!selectedId && decisionsScope === decisionKey && !decisionsLoading;
+
+    const selectChannel = (id: string) => {
+        if (saving || directoryLoading || id === selectedId) return;
+        ruleGeneration.current++;
+        decisionGeneration.current++;
+        setRulesScope(null); setDecisionsScope(null); setRulesFailed(false); setDecisionsFailed(false);
+        setRulePattern(''); setRuleKind('domain'); setRuleAction('block');
+        setDecisionPage(1); setSelectedId(id); setError(null);
+    };
+
     const loadSubscriptions = useCallback(async () => {
+        const generation = ++subscriptionGeneration.current;
+        setDirectoryLoading(true);
         try {
             const result = await fileApi.getSubscriptions({ limit: SUBSCRIPTION_PAGE_SIZE, offset: (subscriptionPage - 1) * SUBSCRIPTION_PAGE_SIZE });
+            if (generation !== subscriptionGeneration.current) return;
+            const lastPage = Math.max(1, Math.ceil(result.total / SUBSCRIPTION_PAGE_SIZE));
+            if (subscriptionPage > lastPage) { setSubscriptionPage(lastPage); return; }
             const items = result.subscriptions;
             setSubscriptions(items);
             setSubscriptionTotal(result.total);
             setSummary(result.summary);
             setSelectedId(current => current && items.some(item => item.id === current) ? current : items[0]?.id || null);
             setError(null);
-        } catch (caught) { handleError(caught, t('subscriptionCenter.errors.subscriptions')); }
-        finally { setLoading(false); }
+        } catch (caught) {
+            if (generation === subscriptionGeneration.current) handleError(caught, t('subscriptionCenter.errors.subscriptions'));
+        } finally {
+            if (generation === subscriptionGeneration.current) { setLoading(false); setDirectoryLoading(false); }
+        }
     }, [handleError, subscriptionPage, t]);
 
     const loadRules = useCallback(async (subscriptionId: string) => {
-        try { setRules(await fileApi.getSubscriptionAdRules(subscriptionId)); }
-        catch (caught) { handleError(caught, t('subscriptionCenter.errors.rules')); }
+        const generation = ++ruleGeneration.current;
+        setRulesLoading(true); setRulesFailed(false); setRulesScope(null); setRules([]);
+        try {
+            const result = await fileApi.getSubscriptionAdRules(subscriptionId);
+            if (generation !== ruleGeneration.current) return;
+            setRules(result); setRulesScope(subscriptionId);
+        } catch (caught) {
+            if (generation === ruleGeneration.current) { setRulesFailed(true); handleError(caught, t('subscriptionCenter.errors.rules')); }
+        } finally { if (generation === ruleGeneration.current) setRulesLoading(false); }
     }, [handleError, t]);
 
     const loadDecisions = useCallback(async () => {
+        if (!selectedId || tab !== 'records') { setDecisionsLoading(false); return; }
+        const generation = ++decisionGeneration.current;
+        setDecisionsLoading(true); setDecisionsFailed(false); setDecisionsScope(null); setDecisions([]); setDecisionTotal(0);
         try {
             const result = await fileApi.getSubscriptionAdDecisions({
-                subscriptionId: selectedId || undefined,
+                subscriptionId: selectedId,
                 decision: decisionFilter || undefined,
                 limit: DECISION_PAGE_SIZE,
                 offset: (decisionPage - 1) * DECISION_PAGE_SIZE,
             });
-            setDecisions(result.decisions);
-            setDecisionTotal(result.total);
-        } catch (caught) { handleError(caught, t('subscriptionCenter.errors.decisions')); }
-    }, [decisionFilter, decisionPage, handleError, selectedId, t]);
+            if (generation !== decisionGeneration.current) return;
+            setDecisions(result.decisions); setDecisionTotal(result.total); setDecisionsScope(decisionKey);
+        } catch (caught) {
+            if (generation === decisionGeneration.current) { setDecisionsFailed(true); handleError(caught, t('subscriptionCenter.errors.decisions')); }
+        } finally { if (generation === decisionGeneration.current) setDecisionsLoading(false); }
+    }, [decisionFilter, decisionPage, decisionKey, handleError, selectedId, tab, t]);
 
-    useEffect(() => { void loadSubscriptions(); }, [loadSubscriptions]);
-    useEffect(() => { if (selectedId) void loadRules(selectedId); else setRules([]); }, [loadRules, selectedId]);
-    useEffect(() => { setDecisionPage(1); }, [decisionFilter, selectedId]);
-    useEffect(() => { if (tab === 'records') void loadDecisions(); }, [loadDecisions, tab]);
+    useEffect(() => {
+        void loadSubscriptions();
+        return () => { subscriptionGeneration.current++; };
+    }, [loadSubscriptions]);
+    useEffect(() => {
+        setRulePattern(''); setRuleKind('domain'); setRuleAction('block');
+        setDecisionPage(1);
+        if (selectedId) void loadRules(selectedId);
+        else { setRules([]); setRulesScope(null); setRulesLoading(false); }
+        return () => { ruleGeneration.current++; };
+    }, [loadRules, selectedId]);
+    useEffect(() => {
+        if (tab === 'records') void loadDecisions();
+        else { setDecisionsLoading(false); setDecisionsScope(null); }
+        return () => { decisionGeneration.current++; };
+    }, [loadDecisions, tab]);
+
+    const mutateSubscription = async (target: TelegramSubscription, remove: boolean) => {
+        if (mutationLock.current || saving || directoryLoading || target.id !== selectedId) return;
+        mutationLock.current = true; setSaving(true); setError(null);
+        try {
+            if (remove) await fileApi.deleteSubscription(target.id);
+            else await fileApi.setSubscriptionEnabled(target.id, !target.enabled);
+            setDeleteTarget(null);
+            if (remove) {
+                ruleGeneration.current++; decisionGeneration.current++;
+                setRules([]); setRulesScope(null); setDecisions([]); setDecisionsScope(null);
+                setRulePattern(''); setDecisionPage(1); setSelectedId(null);
+            }
+            await loadSubscriptions();
+        } catch (caught) { handleError(caught, controls.failed); }
+        finally { mutationLock.current = false; setSaving(false); }
+    };
 
     const updateMode = async (mode: TelegramAdFilterMode) => {
-        if (!selected) return;
-        setSaving(true); setError(null);
+        if (!selected || mutationLock.current || saving || directoryLoading) return;
+        mutationLock.current = true; setSaving(true); setError(null);
         try {
             await fileApi.updateSubscriptionAdFilter(selected.id, mode);
             await loadSubscriptions();
         } catch (caught) { handleError(caught, t('subscriptionCenter.errors.mode')); }
-        finally { setSaving(false); }
+        finally { mutationLock.current = false; setSaving(false); }
     };
 
     const addRule = async () => {
-        if (!selected || !rulePattern.trim()) return;
-        setSaving(true); setError(null);
+        if (!selected || mutationLock.current || saving || directoryLoading || !rulesReady || !rulePattern.trim()) return;
+        mutationLock.current = true; setSaving(true); setError(null);
         try {
             await fileApi.createSubscriptionAdRule(selected.id, { kind: ruleKind, action: ruleAction, pattern: rulePattern.trim() });
             setRulePattern(''); await loadRules(selected.id);
         } catch (caught) { handleError(caught, t('subscriptionCenter.errors.createRule')); }
-        finally { setSaving(false); }
+        finally { mutationLock.current = false; setSaving(false); }
     };
 
     const toggleRule = async (rule: TelegramAdRule) => {
-        if (!selected) return;
-        setSaving(true);
+        if (!selected || mutationLock.current || saving || directoryLoading || !rulesReady || !rules.some(item => item.id === rule.id)) return;
+        mutationLock.current = true; setSaving(true);
         try { await fileApi.setSubscriptionAdRuleEnabled(selected.id, rule.id, !rule.enabled); await loadRules(selected.id); }
         catch (caught) { handleError(caught, t('subscriptionCenter.errors.updateRule')); }
-        finally { setSaving(false); }
+        finally { mutationLock.current = false; setSaving(false); }
     };
 
     const removeRule = async (rule: TelegramAdRule) => {
-        if (!selected) return;
-        setSaving(true);
+        if (!selected || mutationLock.current || saving || directoryLoading || !rulesReady || !rules.some(item => item.id === rule.id)) return;
+        mutationLock.current = true; setSaving(true);
         try { await fileApi.deleteSubscriptionAdRule(selected.id, rule.id); await loadRules(selected.id); }
         catch (caught) { handleError(caught, t('subscriptionCenter.errors.deleteRule')); }
-        finally { setSaving(false); }
+        finally { mutationLock.current = false; setSaving(false); }
     };
 
     const review = async (decision: TelegramAdDecision, label: 'ad' | 'normal') => {
-        setSaving(true); setError(null);
+        if (mutationLock.current || saving || directoryLoading || !decisionsReady || !decisions.some(item => item.id === decision.id)) return;
+        mutationLock.current = true; setSaving(true); setError(null);
         try {
             const result = await fileApi.reviewSubscriptionAdDecision(decision.id, label, true);
             if (result.restoredJobId) setError(t('subscriptionCenter.notices.restored'));
             await Promise.all([loadDecisions(), loadSubscriptions(), selectedId ? loadRules(selectedId) : Promise.resolve()]);
         } catch (caught) { handleError(caught, t('subscriptionCenter.errors.review')); }
-        finally { setSaving(false); }
+        finally { mutationLock.current = false; setSaving(false); }
     };
 
-    if (loading) return <div className="mx-auto max-w-7xl py-16 text-center text-sm text-muted-foreground">{t('subscriptionCenter.loading')}</div>;
+    if (loading) return <div className="tv-operations"><div className="tv-panel op-empty" role="status">{t('subscriptionCenter.loading')}</div></div>;
 
     const subscriptionPages = Math.max(1, Math.ceil(subscriptionTotal / SUBSCRIPTION_PAGE_SIZE));
     const decisionPages = Math.max(1, Math.ceil(decisionTotal / DECISION_PAGE_SIZE));
-
     const Pagination = ({ page, pages, total, onChange }: { page: number; pages: number; total: number; onChange: (page: number) => void }) => (
-        <div className="flex flex-col gap-2 border-t px-3 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <footer className="op-pagination">
             <span>{t('subscriptionCenter.pagination.summary', { total, page, pages })}</span>
-            <div className="flex gap-2">
-                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => onChange(page - 1)}>{t('subscriptionCenter.pagination.previous')}</Button>
-                <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => onChange(page + 1)}>{t('subscriptionCenter.pagination.next')}</Button>
+            <div className="op-actions">
+                <Button size="sm" variant="outline" disabled={page <= 1 || saving || directoryLoading || decisionsLoading} onClick={() => onChange(page - 1)}>{t('subscriptionCenter.pagination.previous')}</Button>
+                <Button size="sm" variant="outline" disabled={page >= pages || saving || directoryLoading || decisionsLoading} onClick={() => onChange(page + 1)}>{t('subscriptionCenter.pagination.next')}</Button>
             </div>
-        </div>
+        </footer>
     );
 
     return (
-        <div className="mx-auto min-h-full max-w-7xl space-y-5">
-            <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <section className="tv-operations op-subscriptions-page" aria-labelledby="subscriptions-page-title">
+            <header className="tv-page-header op-page-heading">
                 <div>
-                    <div className="flex items-center gap-2 text-sm font-medium text-primary"><ShieldCheck className="h-4 w-4" />{t('subscriptionCenter.eyebrow')}</div>
-                    <h2 className="mt-1 text-2xl font-bold">{t('subscriptionCenter.title')}</h2>
-                    <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{t('subscriptionCenter.description')}</p>
+                    <span className="op-eyebrow"><ShieldCheck className="h-3.5 w-3.5" />{t('subscriptionCenter.eyebrow')}</span>
+                    <h1 id="subscriptions-page-title">{t('subscriptionCenter.title')}</h1>
+                    <p>{t('subscriptionCenter.description')}</p>
                 </div>
-                <Button variant="outline" className="gap-2 self-start lg:self-auto" onClick={() => { void loadSubscriptions(); if (tab === 'records') void loadDecisions(); }}>
-                    <RefreshCw className="h-4 w-4" />{t('subscriptionCenter.refresh')}
-                </Button>
+                <Button variant="outline" className="op-action" disabled={saving || directoryLoading || rulesLoading || decisionsLoading} onClick={() => { void loadSubscriptions(); if (selectedId) void loadRules(selectedId); if (tab === 'records') void loadDecisions(); }}><RefreshCw className="h-4 w-4" />{t('subscriptionCenter.refresh')}</Button>
             </header>
 
-            <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <details className="audit-subscription-zero"><summary>{Object.values(summary).some(value => value > 0) ? audit.stats : `${audit.zero} · ${audit.stats}`}</summary><dl className="tv-panel op-stat-strip">
                 {[
-                    [t('subscriptionCenter.summary.enabled'), summary.enabled, t('subscriptionCenter.summary.enabledDetail')], [t('subscriptionCenter.summary.protected'), summary.protected, t('subscriptionCenter.summary.protectedDetail')],
-                    [t('subscriptionCenter.summary.blocked'), summary.blocked, t('subscriptionCenter.summary.blockedDetail')], [t('subscriptionCenter.summary.review'), summary.review, t('subscriptionCenter.summary.reviewDetail')],
-                ].map(([label, value, detail]) => <div key={String(label)} className="rounded-xl border bg-card p-4 shadow-sm"><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-bold">{value}</p><p className="mt-1 text-xs text-muted-foreground">{detail}</p></div>)}
-            </section>
+                    [t('subscriptionCenter.summary.enabled'), summary.enabled, t('subscriptionCenter.summary.enabledDetail')],
+                    [t('subscriptionCenter.summary.protected'), summary.protected, t('subscriptionCenter.summary.protectedDetail')],
+                    [t('subscriptionCenter.summary.blocked'), summary.blocked, t('subscriptionCenter.summary.blockedDetail')],
+                    [audit.attention, summary.review, t('subscriptionCenter.summary.reviewDetail')],
+                ].map(([label, value, detail]) => <div key={String(label)}><dt>{label}</dt><dd>{value}</dd><p>{detail}</p></div>)}
+            </dl></details>
+            {error && <div className="op-notice op-notice--danger" role="alert"><AlertCircle className="h-4 w-4 shrink-0" /><span>{error}</span></div>}
 
-            {error && <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/35 dark:text-red-300"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
-
-            <div className="inline-flex rounded-lg border bg-muted/50 p-1">
-                <button type="button" onClick={() => setTab('subscriptions')} className={cn('rounded-md px-4 py-2 text-sm font-medium transition-colors', tab === 'subscriptions' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}>{t('subscriptionCenter.tabs.subscriptions')}</button>
-                <button type="button" onClick={() => setTab('records')} className={cn('rounded-md px-4 py-2 text-sm font-medium transition-colors', tab === 'records' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}>{t('subscriptionCenter.tabs.records')}</button>
-            </div>
-
-            {tab === 'subscriptions' ? (
-                subscriptions.length === 0 ? <div className="flex flex-col items-center justify-center rounded-xl border bg-card py-20 text-center"><ListFilter className="h-12 w-12 text-muted-foreground/50" /><h3 className="mt-4 text-lg font-semibold">{t('subscriptionCenter.empty.title')}</h3><p className="mt-1 max-w-sm text-sm text-muted-foreground">{t('subscriptionCenter.empty.description')}</p></div> :
-                <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
-                    <aside className="overflow-hidden rounded-xl border bg-card shadow-sm">
-                        <div className="max-h-[640px] space-y-2 overflow-y-auto p-2">
-                        {subscriptions.map(item => (
-                            <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className={cn('w-full rounded-lg border px-3 py-3 text-left transition-colors', selectedId === item.id ? 'border-primary/40 bg-primary/5' : 'border-transparent hover:bg-muted/60')}>
-                                <div className="flex items-start justify-between gap-2"><span className="truncate text-sm font-semibold">{item.title || item.source}</span><span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-medium', modeTone(item.ad_filter_mode))}>{t(MODES.find(mode => mode.value === item.ad_filter_mode)?.labelKey || 'subscriptionCenter.filterModes.off.label')}</span></div>
-                                <p className="mt-1 truncate text-xs text-muted-foreground">{item.source_original || item.source}</p>
-                                <div className="mt-2 flex gap-3 text-[11px] text-muted-foreground"><span>{t('subscriptionCenter.subscription.syncing')}</span><span>{t('subscriptionCenter.subscription.blocked', { count: item.ad_stats?.blocked_count || 0 })}</span><span>{t('subscriptionCenter.subscription.review', { count: item.ad_stats?.review_count || 0 })}</span></div>
-                            </button>
-                        ))}
+            {subscriptions.length === 0 ? <div className="tv-panel op-empty audit-subscription-empty">
+                    <ListFilter className="h-6 w-6" aria-hidden="true" />
+                    <h3>{t('subscriptionCenter.empty.title')}</h3>
+                    <p>{t('subscriptionCenter.empty.description')}</p>
+                    <div className="audit-subscription-entry">
+                        {botUsername ? <a className="audit-subscription-link" href={`https://t.me/${botUsername}`} target="_blank" rel="noopener noreferrer">{audit.bot}</a>
+                            : <><p className="op-help">{audit.unavailable}</p><a className="audit-subscription-link" href="/settings/telegram">{audit.settings}</a></>}
+                    </div>
+                    <details className="audit-subscription-steps"><summary>{audit.steps}</summary><ol><li>{audit.step1}</li><li>{audit.step2}</li><li>{audit.step3}</li></ol></details>
+                </div> :
+                <div className="op-subscription-layout">
+                    <section className="tv-panel op-subscription-directory" aria-label={audit.directory} aria-busy={directoryLoading}>
+                        <div className="op-table-toolbar"><div><h2>{audit.directory}</h2><p className="op-help">{audit.directoryHelp}</p></div><span className="op-badge op-badge--info">{subscriptionTotal}</span></div>
+                        {directoryLoading && <p className="op-scope-status" role="status">{t('subscriptionCenter.loading')}</p>}
+                        <div className="op-channel-cards">
+                            {subscriptions.map(item => <button key={item.id} type="button" disabled={saving || directoryLoading} aria-pressed={selectedId === item.id} onClick={() => selectChannel(item.id)} className={cn('op-channel-card', selectedId === item.id && 'is-selected')}>
+                                <span className="op-channel-card-heading"><strong>{item.title || item.source}</strong>{selectedId === item.id && <span className="op-channel-selected"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />{audit.selected}</span>}</span>
+                                <small>{item.source_original || item.source}</small>
+                                <span className="op-channel-badges"><span className={cn('op-badge', item.enabled ? 'op-badge--success' : 'op-badge--muted')}>{t(item.enabled ? 'subscriptionCenter.subscription.enabled' : 'subscriptionCenter.subscription.disabled')}</span><span className={cn('op-badge', modeTone(item.ad_filter_mode))}>{t(MODES.find(mode => mode.value === item.ad_filter_mode)?.labelKey || 'subscriptionCenter.filterModes.off.label')}</span></span>
+                                <span className="op-channel-counts"><span>{t('subscriptionCenter.subscription.blocked', { count: item.ad_stats?.blocked_count || 0 })}</span><span>{t('subscriptionCenter.subscription.review', { count: item.ad_stats?.review_count || 0 })}</span></span>
+                            </button>)}
                         </div>
                         <Pagination page={subscriptionPage} pages={subscriptionPages} total={subscriptionTotal} onChange={setSubscriptionPage} />
-                    </aside>
-                    {selected && <main className="space-y-5">
-                        <section className="rounded-xl border bg-card p-5 shadow-sm">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="text-lg font-semibold">{selected.title || selected.source}</h3><p className="mt-1 text-sm text-muted-foreground">{t('subscriptionCenter.subscription.lastScan', { date: dateLabel(selected.last_scan_at, locale, t('subscriptionCenter.dateUnavailable')), messageId: selected.last_message_id })}</p></div><span className={cn('self-start rounded-full border px-2.5 py-1 text-xs font-medium', selected.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/35 dark:text-emerald-300' : 'border-border bg-muted text-muted-foreground')}>{t(selected.enabled ? 'subscriptionCenter.subscription.enabled' : 'subscriptionCenter.subscription.disabled')}</span></div>
-                            <div className="mt-5 grid gap-3 md:grid-cols-3">{MODES.map(mode => <button key={mode.value} disabled={saving} type="button" onClick={() => void updateMode(mode.value)} className={cn('rounded-lg border p-4 text-left transition-all disabled:opacity-60', selected.ad_filter_mode === mode.value ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'hover:border-primary/30 hover:bg-muted/30')}><div className="flex items-center justify-between"><span className="font-semibold">{t(mode.labelKey)}</span>{selected.ad_filter_mode === mode.value && <CheckCircle2 className="h-4 w-4 text-primary" />}</div><p className="mt-2 text-xs leading-5 text-muted-foreground">{t(mode.detailKey)}</p></button>)}</div>
-                        </section>
-                        <section className="rounded-xl border bg-card p-5 shadow-sm">
-                            <div className="flex items-center gap-2"><Filter className="h-4 w-4 text-primary" /><h3 className="font-semibold">{t('subscriptionCenter.rules.title')}</h3></div>
-                            <p className="mt-1 text-sm text-muted-foreground">{t('subscriptionCenter.rules.description')}</p>
-                            <div className="mt-4 grid gap-2 sm:grid-cols-[130px_130px_minmax(0,1fr)_auto]">
-                                <select value={ruleAction} onChange={event => setRuleAction(event.target.value as TelegramAdRuleAction)} className="h-10 rounded-md border bg-background px-3 text-sm"><option value="block">{t('subscriptionCenter.rules.actions.block')}</option><option value="allow">{t('subscriptionCenter.rules.actions.alwaysAllow')}</option></select>
-                                <select value={ruleKind} onChange={event => setRuleKind(event.target.value as TelegramAdRuleKind)} className="h-10 rounded-md border bg-background px-3 text-sm">{RULE_KINDS.map(kind => <option key={kind.value} value={kind.value}>{t(kind.labelKey)}</option>)}</select>
-                                <input value={rulePattern} onChange={event => setRulePattern(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void addRule(); }} placeholder={t(RULE_KINDS.find(kind => kind.value === ruleKind)?.placeholderKey || 'subscriptionCenter.ruleKinds.domain.placeholder')} className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30" />
-                                <Button disabled={saving || !rulePattern.trim()} className="gap-2" onClick={() => void addRule()}><Plus className="h-4 w-4" />{t('subscriptionCenter.rules.add')}</Button>
+                        <details className="audit-subscription-steps op-directory-help"><summary>{audit.steps}</summary>
+                            <div className="audit-subscription-entry">{botUsername ? <a className="audit-subscription-link" href={`https://t.me/${botUsername}`} target="_blank" rel="noopener noreferrer">{audit.bot}</a> : <><p className="op-help">{audit.unavailable}</p><a className="audit-subscription-link" href="/settings/telegram">{audit.settings}</a></>}</div>
+                            <ol><li>{audit.step1}</li><li>{audit.step2}</li><li>{audit.step3}</li></ol>
+                        </details>
+                    </section>
+
+                    {selected && <div className="op-channel-workspace">
+                        <header className="op-current-channel"><span className="op-eyebrow">{audit.current}</span><h2>{selected.title || selected.source}</h2><p className="op-help">{selected.source_original || selected.source}</p><p className="op-help">{audit.scope}</p></header>
+                        <section className="tv-panel op-panel" aria-label={selected.title || selected.source}>
+                            <div className="op-actions">
+                                <Button variant="outline" disabled={saving || directoryLoading} onClick={() => void mutateSubscription(selected, false)}>{selected.enabled ? controls.pause : controls.resume}</Button>
+                                <Button variant="destructive" disabled={saving || directoryLoading} onClick={() => setDeleteTarget(selected)}>{controls.remove}</Button>
                             </div>
-                            <div className="mt-4 divide-y rounded-lg border">{rules.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted-foreground">{t('subscriptionCenter.rules.empty')}</p> : rules.map(rule => <div key={rule.id} className="flex items-center gap-3 px-4 py-3"><button type="button" disabled={saving} onClick={() => void toggleRule(rule)} className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded border', rule.enabled ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-background')}>{rule.enabled && <Check className="h-3.5 w-3.5" />}</button><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', rule.action === 'allow' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300')}>{t(rule.action === 'allow' ? 'subscriptionCenter.rules.actions.allow' : 'subscriptionCenter.rules.actions.block')}</span><span className="text-xs text-muted-foreground">{t(RULE_KINDS.find(kind => kind.value === rule.kind)?.labelKey || (rule.kind === 'template' ? 'subscriptionCenter.ruleKinds.template.label' : 'subscriptionCenter.ruleKinds.other.label'), { kind: rule.kind })}</span></div><p className="mt-1 truncate text-sm font-medium">{rule.label || rule.pattern}</p></div><Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" disabled={saving} onClick={() => void removeRule(rule)} aria-label={t('subscriptionCenter.rules.deleteAria')}><Trash2 className="h-4 w-4" /></Button></div>)}</div>
+                            <p className="op-help">{selected.enabled ? controls.pauseHelp : controls.resumeHelp}</p>
                         </section>
-                    </main>}
-                </div>
-            ) : (
-                <section className="space-y-4">
-                    <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold">{t('subscriptionCenter.records.title')}</h3><p className="mt-1 text-sm text-muted-foreground">{t('subscriptionCenter.records.description')}</p></div><select value={decisionFilter} onChange={event => setDecisionFilter(event.target.value as typeof decisionFilter)} className="h-10 rounded-md border bg-background px-3 text-sm"><option value="">{t('subscriptionCenter.records.filters.all')}</option><option value="blocked">{t('subscriptionCenter.records.filters.blocked')}</option><option value="review">{t('subscriptionCenter.records.filters.review')}</option><option value="allow">{t('subscriptionCenter.records.filters.allow')}</option></select></div>
-                    {decisions.length === 0 ? <div className="flex flex-col items-center justify-center rounded-xl border bg-card py-20 text-center"><Ban className="h-12 w-12 text-muted-foreground/50" /><h3 className="mt-4 text-lg font-semibold">{t('subscriptionCenter.records.emptyTitle')}</h3><p className="mt-1 max-w-sm text-sm text-muted-foreground">{t('subscriptionCenter.records.emptyDescription')}</p></div> : <div className="overflow-hidden rounded-xl border bg-card"><div className="max-h-[720px] space-y-3 overflow-y-auto p-3">{decisions.map(item => <article key={item.id} className="rounded-xl border bg-background p-4 shadow-sm"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-semibold', decisionTone(item.decision))}>{t(`subscriptionCenter.records.decisions.${item.decision}`)} · {t('subscriptionCenter.records.score', { score: item.score })}</span><span className="text-xs text-muted-foreground">{item.subscription_title || item.subscription_source} · #{item.message_id} · {dateLabel(item.created_at, locale, t('subscriptionCenter.dateUnavailable'))}</span>{item.manual_label && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">{t(item.manual_label === 'ad' ? 'subscriptionCenter.records.confirmedAd' : 'subscriptionCenter.records.confirmedNormal')}</span>}</div><p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6">{item.text_excerpt || t('subscriptionCenter.records.noText')}</p><div className="mt-3 flex flex-wrap gap-2">{(item.reasons || []).map((reason, index) => <span key={`${reason.code}-${index}`} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{reason.label}{reason.score > 0 ? ` +${reason.score}` : ` ${reason.score}`}</span>)}</div>{(item.domains?.length || item.usernames?.length) > 0 && <p className="mt-3 break-all text-xs text-muted-foreground">{[...(item.domains || []), ...(item.usernames || [])].join(' · ')}</p>}</div><div className="flex shrink-0 gap-2"><Button size="sm" variant="outline" disabled={saving} onClick={() => void review(item, 'normal')}><CheckCircle2 className="mr-1 h-4 w-4" />{t('subscriptionCenter.records.markNormal')}</Button><Button size="sm" variant="outline" disabled={saving} onClick={() => void review(item, 'ad')}><Ban className="mr-1 h-4 w-4" />{t('subscriptionCenter.records.markAd')}</Button></div></div></article>)}</div><Pagination page={decisionPage} pages={decisionPages} total={decisionTotal} onChange={setDecisionPage} /></div>}
+                        <nav className="op-tabs" aria-label={audit.current}>
+                            <button type="button" disabled={saving || directoryLoading} aria-pressed={tab === 'subscriptions'} onClick={() => setTab('subscriptions')} className={cn(tab === 'subscriptions' && 'is-active')}><ListFilter className="h-4 w-4" />{audit.channelSettings}</button>
+                            <button type="button" disabled={saving || directoryLoading} aria-pressed={tab === 'records'} onClick={() => setTab('records')} className={cn(tab === 'records' && 'is-active')}><ShieldCheck className="h-4 w-4" />{t('subscriptionCenter.tabs.records')}</button>
+                        </nav>
+                        {tab === 'subscriptions' ? <div className="op-subscription-settings">
+                        <section className="tv-panel op-panel">
+                            <div className="op-section-heading">
+                                <div><h2 className="op-break">{audit.channelSettings}</h2><p>{t('subscriptionCenter.subscription.lastScan', { date: dateLabel(selected.last_scan_at, locale, t('subscriptionCenter.dateUnavailable')), messageId: selected.last_message_id })}</p></div>
+                                <span className={cn('op-badge', selected.enabled ? 'op-badge--success' : 'op-badge--muted')}>{t(selected.enabled ? 'subscriptionCenter.subscription.enabled' : 'subscriptionCenter.subscription.disabled')}</span>
+                            </div>
+                            <div className="op-mode-list" role="group" aria-label={t('subscriptionCenter.table.filter')}>
+                                {MODES.map(mode => <button key={mode.value} disabled={saving || directoryLoading} type="button" aria-pressed={selected.ad_filter_mode === mode.value} onClick={() => void updateMode(mode.value)} className={cn('op-mode-option', selected.ad_filter_mode === mode.value && 'is-active')}>
+                                    <span className="op-mode-indicator">{selected.ad_filter_mode === mode.value && <CheckCircle2 className="h-4 w-4" />}</span><span><strong>{t(mode.labelKey)}</strong><small>{t(mode.detailKey)}</small></span>
+                                </button>)}
+                            </div>
+                        </section>
+                        <section className="tv-panel op-panel">
+                            <div className="op-section-heading"><div><h2><Filter className="h-4 w-4" />{t('subscriptionCenter.rules.title')}</h2><p>{t('subscriptionCenter.rules.description')}</p></div></div>
+                            <fieldset className="op-rule-editor" disabled={saving || directoryLoading || !rulesReady}>
+                            <form className="op-rule-form" onSubmit={event => { event.preventDefault(); void addRule(); }}>
+                                <label className="op-field"><span>{t('subscriptionCenter.table.action')}</span><select value={ruleAction} onChange={event => setRuleAction(event.target.value as TelegramAdRuleAction)} className="tv-field op-input" disabled={saving || directoryLoading}><option value="block">{t('subscriptionCenter.rules.actions.block')}</option><option value="allow">{t('subscriptionCenter.rules.actions.alwaysAllow')}</option></select></label>
+                                <label className="op-field"><span>{t('subscriptionCenter.table.kind')}</span><select value={ruleKind} onChange={event => setRuleKind(event.target.value as TelegramAdRuleKind)} className="tv-field op-input" disabled={saving || directoryLoading}>{RULE_KINDS.map(kind => <option key={kind.value} value={kind.value}>{t(kind.labelKey)}</option>)}</select></label>
+                                <label className="op-field op-rule-pattern"><span>{t('subscriptionCenter.table.pattern')}</span><input value={rulePattern} onChange={event => setRulePattern(event.target.value)} placeholder={t(RULE_KINDS.find(kind => kind.value === ruleKind)?.placeholderKey || 'subscriptionCenter.ruleKinds.domain.placeholder')} className="tv-field op-input" disabled={saving || directoryLoading} /></label>
+                                <Button type="submit" disabled={saving || !rulePattern.trim()} className="op-action"><Plus className="h-4 w-4" />{t('subscriptionCenter.rules.add')}</Button>
+                            </form>
+                            </fieldset>
+                            <div className="op-rule-list" aria-busy={rulesLoading}>
+                                {!rulesReady ? <p className="op-empty op-empty--compact" role="status">{rulesFailed ? audit.loadFailed : t('subscriptionCenter.loading')}</p> : rules.length === 0 ? <p className="op-empty op-empty--compact">{t('subscriptionCenter.rules.empty')}</p> : rules.map(rule => <div key={rule.id} className="op-rule-row">
+                                    <input type="checkbox" checked={rule.enabled} disabled={saving || directoryLoading} onChange={() => void toggleRule(rule)} aria-label={t('subscriptionCenter.rules.enabledAria', { rule: rule.label || rule.pattern })} />
+                                    <div className="op-rule-content"><div className="op-item-meta"><span className={cn('op-badge', rule.action === 'allow' ? 'op-badge--success' : 'op-badge--danger')}>{t(rule.action === 'allow' ? 'subscriptionCenter.rules.actions.allow' : 'subscriptionCenter.rules.actions.block')}</span><span>{t(RULE_KINDS.find(kind => kind.value === rule.kind)?.labelKey || (rule.kind === 'template' ? 'subscriptionCenter.ruleKinds.template.label' : 'subscriptionCenter.ruleKinds.other.label'), { kind: rule.kind })}</span></div><p title={rule.pattern}>{rule.label || rule.pattern}</p></div>
+                                    <Button variant="ghost" size="icon" className="op-danger-button" disabled={saving || directoryLoading} onClick={() => void removeRule(rule)} aria-label={t('subscriptionCenter.rules.deleteAria')}><Trash2 className="h-4 w-4" /></Button>
+                                </div>)}
+                            </div>
+                        </section>
+                    </div> : (
+                <section className="tv-panel op-decision-console">
+                    <div className="op-table-toolbar op-record-toolbar">
+                        <div><h2>{t('subscriptionCenter.records.title')}</h2><p className="op-help">{t('subscriptionCenter.records.description')}</p></div>
+                        <div className="op-record-filters">
+                            <label className="op-field"><span>{t('subscriptionCenter.table.decision')}</span><select value={decisionFilter} disabled={saving || directoryLoading} onChange={event => { decisionGeneration.current++; setDecisionsScope(null); setDecisionPage(1); setDecisionFilter(event.target.value as typeof decisionFilter); }} className="tv-field op-input"><option value="">{t('subscriptionCenter.records.filters.all')}</option><option value="blocked">{t('subscriptionCenter.records.filters.blocked')}</option><option value="review">{t('subscriptionCenter.records.filters.review')}</option><option value="allow">{t('subscriptionCenter.records.filters.allow')}</option></select></label>
+                        </div>
+                    </div>
+                    {!decisionsReady ? <div className="op-empty" role="status">{decisionsFailed ? audit.loadFailed : t('subscriptionCenter.loading')}</div> : decisions.length === 0 ? <div className="op-empty"><Ban className="h-8 w-8" /><h3>{t('subscriptionCenter.records.emptyTitle')}</h3><p>{t('subscriptionCenter.records.emptyDescription')}</p></div> : (
+                        <div className="op-decision-list">{decisions.map(item => <article key={item.id} className="op-decision-row">
+                            <div className="op-decision-meta"><span className={cn('op-badge', decisionTone(item.decision))}>{t(`subscriptionCenter.records.decisions.${item.decision}`)} · {t('subscriptionCenter.records.score', { score: item.score })}</span><strong>{item.subscription_title || item.subscription_source}</strong><small>#{item.message_id} · {dateLabel(item.created_at, locale, t('subscriptionCenter.dateUnavailable'))}</small>{item.manual_label && <span className="op-badge op-badge--info">{t(item.manual_label === 'ad' ? 'subscriptionCenter.records.confirmedAd' : 'subscriptionCenter.records.confirmedNormal')}</span>}</div>
+                            <div className="op-decision-content"><p>{item.text_excerpt || t('subscriptionCenter.records.noText')}</p><div className="op-reason-list">{(item.reasons || []).map((reason, index) => <span key={`${reason.code}-${index}`} className="op-reason">{reason.label}{reason.score > 0 ? ` +${reason.score}` : ` ${reason.score}`}</span>)}</div>{(item.domains?.length || item.usernames?.length) > 0 && <small className="op-break">{[...(item.domains || []), ...(item.usernames || [])].join(' · ')}</small>}</div>
+                            <div className="op-actions op-review-actions"><Button size="sm" variant="outline" disabled={saving || directoryLoading} className="op-action" onClick={() => void review(item, 'normal')}><CheckCircle2 className="h-4 w-4" />{t('subscriptionCenter.records.markNormal')}</Button><Button size="sm" variant="outline" disabled={saving || directoryLoading} className="op-action op-danger-button" onClick={() => void review(item, 'ad')}><Ban className="h-4 w-4" />{t('subscriptionCenter.records.markAd')}</Button></div>
+                        </article>)}</div>
+                    )}
+                    <Pagination page={decisionPage} pages={decisionPages} total={decisionTotal} onChange={setDecisionPage} />
                 </section>
-            )}
-        </div>
+                        )}
+                    </div>}
+                </div>
+            }
+            <Dialog open={!!deleteTarget} onClose={() => { if (!mutationLock.current) setDeleteTarget(null); }} labelledBy="subscription-delete-title" describedBy="subscription-delete-impact" alert>
+                <div className="tv-modal-header"><div className="tv-modal-heading">
+                    <h3 id="subscription-delete-title" className="tv-modal-title">{controls.remove} — {deleteTarget?.title || deleteTarget?.source}</h3>
+                    <p className="op-break">{deleteTarget?.source_original || deleteTarget?.source}</p>
+                    <p id="subscription-delete-impact" className="tv-modal-description">{controls.deleteHelp}</p>
+                    {error && <p role="alert">{error}</p>}
+                </div></div>
+                <div className="tv-modal-footer">
+                    <Button variant="outline" disabled={saving} onClick={() => setDeleteTarget(null)}>{controls.cancel}</Button>
+                    <Button variant="destructive" disabled={saving || directoryLoading} onClick={() => { if (deleteTarget) void mutateSubscription(deleteTarget, true); }}>{controls.remove}</Button>
+                </div>
+            </Dialog>
+        </section>
     );
 }

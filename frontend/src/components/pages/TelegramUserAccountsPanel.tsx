@@ -1,13 +1,15 @@
+import { formatDateTime } from '../../i18n/format';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { CheckCircle2, Clock3, KeyRound, LoaderCircle, Plus, Power, PowerOff, RefreshCw, ShieldAlert, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
+import { CheckCircle2, Clock3, KeyRound, LoaderCircle, Plus, Power, PowerOff, RefreshCw, ShieldAlert, ShieldCheck, Trash2, UserRound, X } from '../ui/icons';
 import { QRCodeSVG } from 'qrcode.react';
 import { fileApi, type TelegramPermissionSummary, type TelegramUserAccount, type TelegramUserAccountsOverview, type TelegramUserLoginStatus } from '../../services/api';
 import { errorMessage } from '../../services/unknownError';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
 import { Dialog } from '../ui/Dialog';
+import { SettingsGuide, SettingsMetric } from './SettingsPresentation';
 
 const EMPTY_PERMISSIONS: TelegramPermissionSummary = {
     allowed: 0,
@@ -29,12 +31,12 @@ function blankOverview(): TelegramUserAccountsOverview {
 }
 
 function statusView(account: TelegramUserAccount, t: TFunction): { label: string; className: string } {
-    if (!account.enabled || account.health === 'disabled') return { label: t('management.telegramAccounts.status.disabled'), className: 'border-border bg-muted text-muted-foreground' };
-    if (account.health === 'ready' && account.connected) return { label: t('management.telegramAccounts.status.ready'), className: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' };
-    if (account.health === 'cooldown') return { label: t('management.telegramAccounts.status.cooldown'), className: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' };
-    if (account.health === 'permission_denied') return { label: t('management.telegramAccounts.status.permissionDenied'), className: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300' };
-    if (account.health === 'connecting') return { label: t('management.telegramAccounts.status.connecting'), className: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300' };
-    return { label: account.health === 'expired' ? t('management.telegramAccounts.status.expired') : t('management.telegramAccounts.status.error'), className: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' };
+    if (!account.enabled || account.health === 'disabled') return { label: t('management.telegramAccounts.status.disabled'), className: 'settings-status--muted' };
+    if (account.health === 'ready' && account.connected) return { label: t('management.telegramAccounts.status.ready'), className: 'settings-status--success' };
+    if (account.health === 'cooldown') return { label: t('management.telegramAccounts.status.cooldown'), className: 'settings-status--warning' };
+    if (account.health === 'permission_denied') return { label: t('management.telegramAccounts.status.permissionDenied'), className: 'settings-status--warning' };
+    if (account.health === 'connecting') return { label: t('management.telegramAccounts.status.connecting'), className: 'settings-status--info' };
+    return { label: account.health === 'expired' ? t('management.telegramAccounts.status.expired') : t('management.telegramAccounts.status.error'), className: 'settings-status--danger' };
 }
 
 function accountName(account: TelegramUserAccount, t: TFunction): string {
@@ -44,16 +46,16 @@ function accountName(account: TelegramUserAccount, t: TFunction): string {
 function formatTime(value: string | null | undefined, locale: string): string | null {
     if (!value) return null;
     const timestamp = Date.parse(value);
-    return Number.isNaN(timestamp) ? null : new Date(timestamp).toLocaleString(locale, { hour12: false });
+    return Number.isNaN(timestamp) ? null : formatDateTime(timestamp, locale);
 }
 
 function PermissionSummary({ summary, compact = false }: { summary: TelegramPermissionSummary; compact?: boolean }) {
     const { t } = useTranslation();
     if (!summary.total) return <span className="text-muted-foreground">{t('management.telegramAccounts.permissions.notChecked')}</span>;
     return (
-        <span className={cn('inline-flex flex-wrap items-center gap-x-2 gap-y-1', compact ? 'text-xs' : 'text-sm')}>
-            <span className="text-emerald-700 dark:text-emerald-300">{t('management.telegramAccounts.permissions.allowed', { count: summary.allowed })}</span>
-            <span className="text-red-700 dark:text-red-300">{t('management.telegramAccounts.permissions.denied', { count: summary.denied })}</span>
+        <span className={cn('inline-flex flex-wrap items-center gap-x-2 gap-y-1', compact ? 'text-[12px]' : 'text-[13px]')}>
+            <span className="settings-text-success">{t('management.telegramAccounts.permissions.allowed', { count: summary.allowed })}</span>
+            <span className="settings-text-danger">{t('management.telegramAccounts.permissions.denied', { count: summary.denied })}</span>
             <span className="text-muted-foreground">{t('management.telegramAccounts.permissions.unknown', { count: summary.unknown })}</span>
         </span>
     );
@@ -232,31 +234,31 @@ function LoginDialog({
     const complete = login?.status === 'complete';
     return (
         <Dialog open={open} onClose={close} labelledBy="telegram-account-login-title" describedBy="telegram-account-login-description" closeOnEscape={!busy} closeOnBackdrop={!busy} className="w-full max-w-xl">
-            <div className="overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
-                <div className="flex items-start gap-3 border-b border-border bg-muted/30 px-5 py-4 sm:px-6">
-                    <div className="rounded-full bg-primary/10 p-2 text-primary"><UserRound className="h-5 w-5" /></div>
+            <div className="settings-surface tv-panel settings-login">
+                <div className="settings-login__header">
+                    <div className="settings-icon"><UserRound className="h-5 w-5" /></div>
                     <div className="min-w-0 flex-1">
                         <h3 id="telegram-account-login-title" className="text-lg font-semibold">{t('management.telegramAccounts.login.title')}</h3>
-                        <p id="telegram-account-login-description" className="mt-1 text-sm text-muted-foreground">{t('management.telegramAccounts.login.description')}</p>
+                        <p id="telegram-account-login-description" className="mt-1 text-[13px] text-muted-foreground">{t('management.telegramAccounts.login.description')}</p>
                     </div>
-                    <button type="button" onClick={close} disabled={busy} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted" aria-label={t('management.telegramAccounts.login.closeAria')}><X className="h-4 w-4" /></button>
+                    <button type="button" onClick={close} disabled={busy} className="settings-icon-button rounded-lg text-muted-foreground hover:bg-muted" aria-label={t('management.telegramAccounts.login.closeAria')}><X className="h-4 w-4" /></button>
                 </div>
-                <div className="space-y-5 p-5 sm:p-6">
-                    {failure && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{failure}</div>}
+                <div className="settings-login__body">
+                    {failure && <div role="alert" className="settings-notice settings-status--danger">{failure}</div>}
 
                     {method === 'choose' && <div className="space-y-4">
                         <div>
                             <h4 className="font-semibold">{t('management.telegramAccounts.login.chooseTitle')}</h4>
-                            <p className="mt-1 text-sm text-muted-foreground">{t('management.telegramAccounts.login.chooseDescription')}</p>
+                            <p className="mt-1 text-[13px] text-muted-foreground">{t('management.telegramAccounts.login.chooseDescription')}</p>
                         </div>
                         <div className="grid gap-3 sm:grid-cols-2">
-                            <button type="button" aria-pressed={selectedMethod === 'qr'} onClick={() => chooseMethod('qr')} className={cn('rounded-xl border p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/5', selectedMethod === 'qr' ? 'border-primary bg-primary/5 ring-2 ring-primary/20' : 'border-border')}>
+                            <button type="button" aria-pressed={selectedMethod === 'qr'} onClick={() => chooseMethod('qr')} className={cn('settings-login__method', selectedMethod === 'qr' ? 'border-primary bg-primary/5 ring-2 ring-primary/20' : 'border-border')}>
                                 <div className="flex items-center gap-2 font-medium"><RefreshCw className="h-4 w-4 text-primary" />{t('management.telegramAccounts.login.qr')}</div>
-                                <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('management.telegramAccounts.login.qrDescription')}</p>
+                                <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{t('management.telegramAccounts.login.qrDescription')}</p>
                             </button>
-                            <button type="button" aria-pressed={selectedMethod === 'phone'} onClick={() => chooseMethod('phone')} className={cn('rounded-xl border p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/5', selectedMethod === 'phone' ? 'border-primary bg-primary/5 ring-2 ring-primary/20' : 'border-border')}>
+                            <button type="button" aria-pressed={selectedMethod === 'phone'} onClick={() => chooseMethod('phone')} className={cn('settings-login__method', selectedMethod === 'phone' ? 'border-primary bg-primary/5 ring-2 ring-primary/20' : 'border-border')}>
                                 <div className="flex items-center gap-2 font-medium"><KeyRound className="h-4 w-4 text-primary" />{t('management.telegramAccounts.login.phone')}</div>
-                                <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('management.telegramAccounts.login.phoneDescription')}</p>
+                                <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{t('management.telegramAccounts.login.phoneDescription')}</p>
                             </button>
                         </div>
                         <div className="flex justify-end">
@@ -267,10 +269,10 @@ function LoginDialog({
                     {method === 'qr' && !complete && <div className="space-y-4 text-center">
                         <div>
                             <h4 className="font-semibold">{t('management.telegramAccounts.login.qr')}</h4>
-                            <p className="mt-1 text-sm text-muted-foreground">{t('management.telegramAccounts.login.qrInstructions')}</p>
+                            <p className="mt-1 text-[13px] text-muted-foreground">{t('management.telegramAccounts.login.qrInstructions')}</p>
                         </div>
-                        <div className="mx-auto flex min-h-56 w-56 items-center justify-center rounded-2xl border border-border bg-white p-4 shadow-sm">
-                            {login?.qrCode ? <QRCodeSVG value={login.qrCode} size={192} level="M" aria-label={t('management.telegramAccounts.login.qrAria')} /> : <LoaderCircle className="h-8 w-8 animate-spin text-primary" aria-label={t('management.telegramAccounts.login.generatingQr')} />}
+                        <div className="settings-qr settings-qr--login">
+                            {login?.qrCode ? <QRCodeSVG value={login.qrCode} size={192} level="M" marginSize={4} aria-label={t('management.telegramAccounts.login.qrAria')} /> : <LoaderCircle className="h-8 w-8 animate-spin text-primary" aria-label={t('management.telegramAccounts.login.generatingQr')} />}
                         </div>
                         <div className="flex flex-col justify-center gap-2 sm:flex-row">
                             <Button variant="outline" onClick={() => void startQr()} disabled={busy}><RefreshCw className="mr-2 h-4 w-4" />{t('management.telegramAccounts.login.refreshQr')}</Button>
@@ -280,10 +282,10 @@ function LoginDialog({
                     </div>}
 
                     {method === 'phone' && !login && <div className="space-y-3">
-                        <label htmlFor="telegram-login-phone" className="text-sm font-medium">{t('management.telegramAccounts.login.phoneLabel')}</label>
-                        <p className="text-xs text-muted-foreground">{t('management.telegramAccounts.login.phoneHint')}</p>
+                        <label htmlFor="telegram-login-phone" className="text-[13px] font-medium">{t('management.telegramAccounts.login.phoneLabel')}</label>
+                        <p className="text-[12px] text-muted-foreground">{t('management.telegramAccounts.login.phoneHint')}</p>
                         <div className="flex flex-col gap-2 sm:flex-row">
-                            <input id="telegram-login-phone" value={phone} onChange={event => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder={t('management.telegramAccounts.login.phonePlaceholder')} className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                            <input id="telegram-login-phone" value={phone} onChange={event => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder={t('management.telegramAccounts.login.phonePlaceholder')} className="min-w-0 flex-1 px-3 py-2" />
                             <Button onClick={() => void submitPhone()} disabled={busy || !phone.trim()}>{t('management.telegramAccounts.login.sendCode')}</Button>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -293,26 +295,26 @@ function LoginDialog({
                     </div>}
 
                     {login?.status === 'code_required' && <div className="space-y-3">
-                        <label htmlFor="telegram-login-code" className="text-sm font-medium">{t('management.telegramAccounts.login.codeLabel')}</label>
-                        <p className="text-xs text-muted-foreground">{t('management.telegramAccounts.login.codeSent')}{login.message ? `: ${login.message}` : ''}</p>
+                        <label htmlFor="telegram-login-code" className="text-[13px] font-medium">{t('management.telegramAccounts.login.codeLabel')}</label>
+                        <p className="text-[12px] text-muted-foreground">{t('management.telegramAccounts.login.codeSent')}{login.message ? `: ${login.message}` : ''}</p>
                         <div className="flex flex-col gap-2 sm:flex-row">
-                            <input id="telegram-login-code" value={code} onChange={event => setCode(event.target.value)} autoComplete="one-time-code" inputMode="numeric" placeholder={t('management.telegramAccounts.login.codePlaceholder')} className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                            <input id="telegram-login-code" value={code} onChange={event => setCode(event.target.value)} autoComplete="one-time-code" inputMode="numeric" placeholder={t('management.telegramAccounts.login.codePlaceholder')} className="min-w-0 flex-1 px-3 py-2" />
                             <Button onClick={() => void submitCode()} disabled={busy || !code.trim()}>{t('management.telegramAccounts.login.verify')}</Button>
                         </div>
                     </div>}
 
                     {login?.status === 'password_required' && <div className="space-y-3">
-                        <label htmlFor="telegram-login-password" className="text-sm font-medium">{t('management.telegramAccounts.login.passwordLabel')}</label>
-                        <p className="text-xs text-muted-foreground">{t('management.telegramAccounts.login.passwordHint')}</p>
+                        <label htmlFor="telegram-login-password" className="text-[13px] font-medium">{t('management.telegramAccounts.login.passwordLabel')}</label>
+                        <p className="text-[12px] text-muted-foreground">{t('management.telegramAccounts.login.passwordHint')}</p>
                         <div className="flex flex-col gap-2 sm:flex-row">
-                            <input id="telegram-login-password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" placeholder={t('management.telegramAccounts.login.passwordPlaceholder')} className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                            <input id="telegram-login-password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" placeholder={t('management.telegramAccounts.login.passwordPlaceholder')} className="min-w-0 flex-1 px-3 py-2" />
                             <Button onClick={() => void submitPassword()} disabled={busy || !password}>{t('management.telegramAccounts.login.signIn')}</Button>
                         </div>
                     </div>}
 
                     {complete && <div role="status" className="flex flex-col items-center gap-3 py-6 text-center">
-                        <CheckCircle2 className="h-10 w-10 text-emerald-600" />
-                        <div><h4 className="font-semibold">{t('management.telegramAccounts.login.completeTitle')}</h4><p className="mt-1 text-sm text-muted-foreground">{t('management.telegramAccounts.login.completeDescription')}</p></div>
+                        <CheckCircle2 className="h-10 w-10 settings-text-success" />
+                        <div><h4 className="font-semibold">{t('management.telegramAccounts.login.completeTitle')}</h4><p className="mt-1 text-[13px] text-muted-foreground">{t('management.telegramAccounts.login.completeDescription')}</p></div>
                         <Button onClick={close}>{t('management.telegramAccounts.login.done')}</Button>
                     </div>}
                 </div>
@@ -374,55 +376,56 @@ export function TelegramUserAccountsPanel({
     };
 
     return (
-        <div className="space-y-4 p-4 sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="settings-surface settings-telegram">
+            <div className="settings-telegram__header">
                 <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                         <h4 className="font-semibold">{t('management.telegramAccounts.title')}</h4>
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{t('management.telegramAccounts.count', { count: overview.summary.total })}</span>
+                        <span className="tv-badge settings-status settings-status--muted">{t('management.telegramAccounts.count', { count: overview.summary.total })}</span>
                     </div>
-                    <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">{t('management.telegramAccounts.description')}</p>
+                    <p className="mt-1 max-w-2xl text-[13px] leading-6 text-muted-foreground">{t('management.telegramAccounts.description')}</p>
                 </div>
                 <Button className="w-full sm:w-auto" onClick={() => setLoginOpen(true)} disabled={!configured}><Plus className="mr-2 h-4 w-4" />{t('management.telegramAccounts.add')}</Button>
             </div>
 
-            {!configured && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"><ShieldAlert className="mr-2 inline h-4 w-4" />{t('management.telegramAccounts.botRequired')}</div>}
-            {loadError && <div role="alert" className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"><span>{loadError}</span><Button variant="outline" size="sm" onClick={() => void reload()}>{t('management.telegramAccounts.retry')}</Button></div>}
+            {!configured && <div className="settings-notice settings-status--warning"><ShieldAlert className="mr-2 inline h-4 w-4" />{t('management.telegramAccounts.botRequired')}</div>}
+            {loadError && <div role="alert" className="settings-notice settings-status--danger settings-action-row"><span>{loadError}</span><Button variant="outline" size="sm" onClick={() => void reload()}>{t('management.telegramAccounts.retry')}</Button></div>}
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-xl border border-border bg-background p-3"><p className="text-xs text-muted-foreground">{t('management.telegramAccounts.summary.enabled')}</p><p className="mt-1 text-xl font-semibold tabular-nums">{overview.summary.enabled}<span className="ml-1 text-sm font-normal text-muted-foreground">/ {overview.summary.total}</span></p></div>
-                <div className="rounded-xl border border-border bg-background p-3"><p className="text-xs text-muted-foreground">{t('management.telegramAccounts.summary.ready')}</p><p className="mt-1 text-xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{overview.summary.ready}</p></div>
-                <div className="rounded-xl border border-border bg-background p-3"><p className="text-xs text-muted-foreground">{t('management.telegramAccounts.summary.cooldown')}</p><p className="mt-1 text-xl font-semibold tabular-nums text-amber-700 dark:text-amber-300">{overview.summary.coolingDown}</p></div>
-                <div className="rounded-xl border border-border bg-background p-3"><p className="text-xs text-muted-foreground">{t('management.telegramAccounts.summary.permissions')}</p><div className="mt-1"><PermissionSummary summary={overview.summary.permissions} compact /></div></div>
+            <div className="settings-metrics">
+                <SettingsMetric label={t('management.telegramAccounts.summary.enabled')}>{overview.summary.enabled}<span className="settings-metric__denominator">/ {overview.summary.total}</span></SettingsMetric>
+                <SettingsMetric label={t('management.telegramAccounts.summary.ready')} tone="success">{overview.summary.ready}</SettingsMetric>
+                <SettingsMetric label={t('management.telegramAccounts.summary.cooldown')} tone="warning">{overview.summary.coolingDown}</SettingsMetric>
+                <SettingsMetric label={t('management.telegramAccounts.summary.permissions')}><PermissionSummary summary={overview.summary.permissions} compact /></SettingsMetric>
             </div>
 
-            <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-200">
-                <p className="font-medium">{t('management.telegramAccounts.scheduling.title')}</p>
-                <p className="mt-1 text-xs leading-5 text-blue-800/80 dark:text-blue-300/80">{t('management.telegramAccounts.scheduling.description')}</p>
-            </div>
+            <div className="settings-telegram__workspace">
+            <SettingsGuide title={t('management.telegramAccounts.scheduling.title')} icon={ShieldCheck}>
+                <p>{t('management.telegramAccounts.scheduling.description')}</p>
+                <p className="settings-guide__privacy"><KeyRound className="mr-1 inline h-3.5 w-3.5" />{t('management.telegramAccounts.privacy')}</p>
+            </SettingsGuide>
 
-            {loading ? <div className="flex min-h-32 items-center justify-center text-sm text-muted-foreground"><LoaderCircle className="mr-2 h-5 w-5 animate-spin" />{t('management.telegramAccounts.loading')}</div> : !loadError && overview.accounts.length === 0 ? <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center"><UserRound className="mx-auto h-8 w-8 text-muted-foreground/60" /><p className="mt-3 text-sm font-medium">{t('management.telegramAccounts.empty.title')}</p><p className="mt-1 text-xs text-muted-foreground">{t('management.telegramAccounts.empty.description')}</p></div> : <div className="space-y-3">
+            {loading ? <div className="flex min-h-32 items-center justify-center text-[13px] text-muted-foreground"><LoaderCircle className="mr-2 h-5 w-5 animate-spin" />{t('management.telegramAccounts.loading')}</div> : !loadError && overview.accounts.length === 0 ? <div className="settings-empty"><UserRound className="mx-auto h-8 w-8 text-muted-foreground/60" /><p className="mt-3 text-[13px] font-medium">{t('management.telegramAccounts.empty.title')}</p><p className="mt-1 text-[12px] text-muted-foreground">{t('management.telegramAccounts.empty.description')}</p></div> : <div className="space-y-3">
                 {overview.accounts.map(account => {
                     const status = statusView(account, t);
                     const busy = busyAccountId === account.id;
-                    return <article key={account.id} className="rounded-xl border border-border bg-background p-4">
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    return <article key={account.id} className="settings-telegram-account">
+                        <div className="settings-telegram-account__layout">
                             <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <h5 className="truncate font-semibold">{accountName(account, t)}</h5>
-                                    <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-semibold', status.className)}>{status.label}</span>
+                                    <h5 className="settings-telegram-account__name">{accountName(account, t)}</h5>
+                                    <span className={cn('tv-badge settings-status', status.className)}>{status.label}</span>
                                 </div>
-                                <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 xl:grid-cols-4">
+                                <div className="settings-telegram-account__facts">
                                     <p><ShieldCheck className="mr-1 inline h-3.5 w-3.5" />{t('management.telegramAccounts.account.permissions')}: <PermissionSummary summary={account.permissionSummary} compact /></p>
                                     <p><Power className="mr-1 inline h-3.5 w-3.5" />{t('management.telegramAccounts.account.activeDownloads', { count: account.scheduling.activeDownloads })}</p>
                                     <p><Clock3 className="mr-1 inline h-3.5 w-3.5" />{t('management.telegramAccounts.account.lastChecked')}: {formatTime(account.checkedAt, locale) || t('management.telegramAccounts.permissions.notChecked')}</p>
                                     <p>{t('management.telegramAccounts.account.weight', { value: account.scheduling.weight })}</p>
                                 </div>
-                                {account.cooldownUntil && <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t('management.telegramAccounts.account.cooldownUntil', { time: formatTime(account.cooldownUntil, locale) || t('management.telegramAccounts.account.pendingUpdate') })}</p>}
-                                {account.lastError && account.health !== 'disabled' && <p className="mt-2 break-words text-xs text-red-700 dark:text-red-300">{t('management.telegramAccounts.account.lastError')}: {account.lastError}</p>}
-                                {!account.enabled && <p className="mt-2 text-xs text-muted-foreground">{t('management.telegramAccounts.account.disabledHint')}</p>}
+                                {account.cooldownUntil && <p className="mt-2 text-[12px] settings-text-warning">{t('management.telegramAccounts.account.cooldownUntil', { time: formatTime(account.cooldownUntil, locale) || t('management.telegramAccounts.account.pendingUpdate') })}</p>}
+                                {account.lastError && account.health !== 'disabled' && <p className="mt-2 break-words text-[12px] settings-text-danger">{t('management.telegramAccounts.account.lastError')}: {account.lastError}</p>}
+                                {!account.enabled && <p className="mt-2 text-[12px] text-muted-foreground">{t('management.telegramAccounts.account.disabledHint')}</p>}
                             </div>
-                            <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:max-w-sm lg:justify-end">
+                            <div className="settings-actions settings-telegram-account__actions">
                                 {account.enabled ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void mutateAccount(account, 'disable')}><PowerOff className="mr-1.5 h-3.5 w-3.5" />{t('management.telegramAccounts.account.disable')}</Button> : <Button size="sm" variant="outline" disabled={busy} onClick={() => void mutateAccount(account, 'enable')}><Power className="mr-1.5 h-3.5 w-3.5" />{t('management.telegramAccounts.account.enable')}</Button>}
                                 <Button size="sm" variant="destructive" disabled={busy} onClick={() => void mutateAccount(account, 'unlink')}><Trash2 className="mr-1.5 h-3.5 w-3.5" />{t('management.telegramAccounts.account.delete')}</Button>
                             </div>
@@ -431,7 +434,7 @@ export function TelegramUserAccountsPanel({
                 })}
             </div>}
 
-            <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground"><KeyRound className="mr-1 inline h-3.5 w-3.5" />{t('management.telegramAccounts.privacy')}</div>
+            </div>
             <LoginDialog open={loginOpen} onClose={() => setLoginOpen(false)} onComplete={async () => { await reload(); await onNotice(t('management.telegramAccounts.notices.bound')); }} />
         </div>
     );

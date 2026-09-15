@@ -1,7 +1,8 @@
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle } from './icons';
 import { Button } from './Button';
 import { Dialog } from './Dialog';
 import { useTranslation } from 'react-i18next';
+import './overlays.css';
 
 export function ConfirmDialog({ isOpen, title, description, confirmLabel, onClose, onConfirm }: {
     isOpen: boolean;
@@ -14,12 +15,12 @@ export function ConfirmDialog({ isOpen, title, description, confirmLabel, onClos
     const { t } = useTranslation();
     const resolvedConfirmLabel = confirmLabel ?? t('common.actions.confirm');
     return (
-        <Dialog open={isOpen} onClose={onClose} labelledBy="confirm-dialog-title" describedBy="confirm-dialog-description" alert className="w-full max-w-md rounded-xl border border-border bg-background shadow-2xl">
-            <div className="flex items-start gap-3 border-b border-border px-6 py-5">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" aria-hidden="true" />
-                <div><h3 id="confirm-dialog-title" className="font-semibold">{title}</h3><p id="confirm-dialog-description" className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p></div>
+        <Dialog open={isOpen} onClose={onClose} labelledBy="confirm-dialog-title" describedBy="confirm-dialog-description" alert>
+            <div className="tv-modal-header">
+                <span className="tv-modal-icon tv-modal-icon--warning"><AlertTriangle className="h-5 w-5" aria-hidden="true" /></span>
+                <div className="tv-modal-heading"><h3 id="confirm-dialog-title" className="tv-modal-title">{title}</h3><p id="confirm-dialog-description" className="tv-modal-description">{description}</p></div>
             </div>
-            <div className="flex justify-end gap-3 px-6 py-4"><Button variant="outline" onClick={onClose}>{t('common.actions.cancel')}</Button><Button className="bg-red-600 text-white hover:bg-red-700" onClick={onConfirm}>{resolvedConfirmLabel}</Button></div>
+            <div className="tv-modal-footer"><Button variant="outline" className="tv-modal-action" onClick={onClose}>{t('common.actions.cancel')}</Button><Button variant="destructive" className="tv-modal-action" onClick={onConfirm}>{resolvedConfirmLabel}</Button></div>
         </Dialog>
     );
 }

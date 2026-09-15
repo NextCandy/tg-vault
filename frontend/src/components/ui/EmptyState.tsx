@@ -1,8 +1,9 @@
 import { motion } from "framer-motion";
-import { FolderOpen, SearchX, WifiOff, AlertTriangle, RefreshCw } from "lucide-react";
+import { FolderOpen, SearchX, WifiOff, AlertTriangle, RefreshCw } from "./icons";
 import { useTranslation } from "react-i18next";
 import { Button } from "./Button";
 import type { FileViewStateKind } from "../../services/fileViewState";
+import './overlays.css';
 
 interface EmptyStateProps {
     kind?: FileViewStateKind;
@@ -24,17 +25,17 @@ export const EmptyState = ({ kind = 'empty-root', onRetry, onClearSearch, onClea
         : FolderOpen;
     return (
         <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col items-center justify-center py-20 text-center"
+            className="tv-empty-state"
             role={kind === 'error' || kind === 'offline' ? 'alert' : 'status'}
         >
-            <div className="bg-muted/30 p-6 rounded-full mb-4">
-                <Icon className="h-12 w-12 text-muted-foreground/60" />
+            <div className="tv-empty-state__icon" aria-hidden="true">
+                <Icon className="h-7 w-7" />
             </div>
-            <h3 className="text-lg font-semibold text-foreground">{t(`empty.${key}.title`)}</h3>
-            <p className="text-muted-foreground mt-1 max-w-sm">{t(`empty.${key}.description`)}</p>
-            <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <h3 className="tv-empty-state__title">{t(`empty.${key}.title`)}</h3>
+            <p className="tv-empty-state__description">{t(`empty.${key}.description`)}</p>
+            <div className="tv-empty-state__actions">
                 {(kind === 'offline' || kind === 'error' || kind === 'stale') && onRetry && (
                     <Button variant="outline" onClick={onRetry}><RefreshCw className="h-4 w-4" />{t('empty.retry')}</Button>
                 )}

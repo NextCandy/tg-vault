@@ -10,7 +10,7 @@ import crypto from 'crypto';
 import { rateLimit } from 'express-rate-limit';
 import { getSetting, setSetting } from '../utils/settings.js';
 import { changeTelegramPin, ensureTelegramPinConfigured, getConfiguredTelegramAllowedUsers, parseTelegramAllowedUserIds, setTelegramAllowedUsersAndReconcile, TelegramPinChangeError } from '../utils/authSettings.js';
-import { activateTelegramUserAccount, disableTelegramUserAccount, enableTelegramUserAccount, getTelegramUserAccountStatus, getTelegramUserSessionFilePath, isTelegramUserClientReady, telegramUserWebLogin, unlinkTelegramUserAccount } from '../services/telegramUserClient.js';
+import { activateTelegramUserAccount, disableTelegramUserAccount, enableTelegramUserAccount, getTelegramUserAccountStatus, isTelegramUserClientReady, telegramUserWebLogin, unlinkTelegramUserAccount } from '../services/telegramUserClient.js';
 import { telegramAccountRepository } from '../services/telegramAccountRepository.js';
 import { telegramUserClientPool } from '../services/telegramMultiAccountRuntime.js';
 import { triggerTelegramAccountAccessSweep, getTelegramAccountAccessSweepSummary } from '../services/telegramAccountAccessSweep.js';
@@ -43,7 +43,7 @@ import {
     setTelegramBotIdentity,
     testTelegramBotCredentials,
 } from '../services/telegramBotConfig.js';
-import { withTelegramBotLifecycle } from '../services/telegramBot.js';
+import { withTelegramBotLifecycle, retryTelegramBot } from '../services/telegramBot.js';
 import { maintenanceImpact } from '../utils/maintenanceActions.js';
 import { buildStorageCapabilities, buildStorageScopeForTarget, buildStorageStatsPayload } from '../utils/storageProductContract.js';
 import { buildAdvancedSettings, normalizeAdvancedSettingsPatch } from '../utils/advancedSettings.js';
@@ -384,6 +384,17 @@ router.get('/config/telegram-bot', requireAuth, async (_req: Request, res: Respo
     }
 });
 
+router.post('/config/telegram-bot/retry', requireAuth, async (_req: Request, res: Response) => {
+    noStore(res);
+    try {
+        const result = await retryTelegramBot();
+        const status = result.accepted ? 202 : result.code === 'BOT_RETRY_COOLDOWN' ? 429 : 409;
+        return res.status(status).json({ ...result, config: await getTelegramBotPublicConfig() });
+    } catch {
+        return res.status(500).json({ accepted: false, code: 'BOT_RETRY_FAILED', error: 'Telegram Bot retry failed' });
+    }
+});
+
 router.post('/config/telegram-bot/test', requireAuth, async (req: Request, res: Response) => {
     noStore(res);
     try {
@@ -495,9 +506,6 @@ router.delete('/config/telegram-bot', requireAuth, async (req: Request, res: Res
         await withTelegramBotLifecycle(async controls => {
             await controls.stop();
             await deleteTelegramBotConfig();
-            // Use the same resolved setting as the user-account migration path.
-            const sessionPath = getTelegramUserSessionFilePath();
-            if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { force: true });
             const effective = await applyEffectiveTelegramBotConfig();
             if (effective.source === 'environment' && effective.enabled && effective.credentials) await controls.restart(effective.credentials);
         });

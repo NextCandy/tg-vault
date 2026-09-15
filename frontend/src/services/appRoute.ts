@@ -3,6 +3,7 @@ import type { SettingsSectionId } from '../components/pages/settingsSections';
 export type FileCategory = 'all' | 'media' | 'image' | 'video' | 'audio' | 'document' | 'favorites';
 
 export type AppRoute =
+    | { kind: 'about'; needsReplace: boolean }
     | { kind: 'upload'; needsReplace: boolean }
     | { kind: 'files'; category: FileCategory; folder: string | null; query: string; needsReplace: boolean }
     | { kind: 'tasks'; accountId: string | null; needsReplace: boolean }
@@ -31,6 +32,7 @@ export function parseAppRoute(location: Pick<Location, 'pathname' | 'search'>): 
     const pathname = location.pathname.replace(/\/+$/, '') || '/';
     if (pathname === '/') return { kind: 'upload', needsReplace: false };
     if (pathname === '/upload') return { kind: 'upload', needsReplace: true };
+    if (pathname === '/about') return { kind: 'about', needsReplace: false };
     const category = PATH_CATEGORIES.get(pathname);
     if (category) {
         const params = new URLSearchParams(location.search);
@@ -49,6 +51,7 @@ export function parseAppRoute(location: Pick<Location, 'pathname' | 'search'>): 
 }
 
 export function appRouteHref(route: AppRoute): string {
+    if (route.kind === 'about') return '/about';
     if (route.kind === 'upload') return '/';
     if (route.kind === 'tasks') {
         const params = new URLSearchParams();
@@ -66,6 +69,7 @@ export function appRouteHref(route: AppRoute): string {
 }
 
 export function routeForCategory(category: string, options: { folder?: string | null; query?: string } = {}): AppRoute {
+    if (category === 'about') return { kind: 'about', needsReplace: false };
     if (category === 'upload') return { kind: 'upload', needsReplace: false };
     if (category === 'tasks') return { kind: 'tasks', accountId: null, needsReplace: false };
     if (category === 'subscriptions') return { kind: 'subscriptions', needsReplace: false };

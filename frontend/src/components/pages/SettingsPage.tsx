@@ -1,8 +1,10 @@
+import { AppearanceSettings } from './AppearanceSettings';
+import { formatDateTime, formatNumber } from '../../i18n/format';
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
-import { HardDrive, ChevronRight, Palette, Globe, Cloud, Server, Database, CheckCircle, Trash2, Network, Shield, ShieldAlert, ShieldCheck, ExternalLink, BookOpen, KeyRound, LogOut, UserX, CircleHelp, XCircle, RefreshCw, Gauge, Copy, X, PackageCheck } from "lucide-react";
+import { HardDrive, Palette, Globe, Cloud, Server, Database, CheckCircle, Trash2, Network, Shield, ShieldAlert, ShieldCheck, ExternalLink, BookOpen, KeyRound, CircleHelp, XCircle, RefreshCw, Gauge, Copy, X } from "../ui/icons";
 import { Button } from "../ui/Button";
 import { LanguageToggle } from "../ui/LanguageToggle";
 import { cn } from "../../lib/utils";
@@ -15,8 +17,10 @@ import { SETTINGS_SECTIONS, type SettingsSectionId } from "./settingsSections";
 import { IndeterminateSpinner } from "../ui/IndeterminateSpinner";
 import { errorCode, errorMessage } from "../../services/unknownError";
 import { Dialog } from "../ui/Dialog";
+import { getProviderMetadata } from '../../services/providerMetadata';
 import { LocalStorageLocation } from './LocalStorageLocation';
 import { TelegramUserAccountsPanel } from "./TelegramUserAccountsPanel";
+import { SettingsField, SettingsFormLayout, SettingsRow, SettingsSection, SettingsWorkspace } from "./SettingsPresentation";
 
 interface SettingsPageProps {
     storageStats?: StorageStats | null;
@@ -27,56 +31,6 @@ interface SettingsPageProps {
     activeSection: SettingsSectionId;
     onSectionChange: (section: SettingsSectionId) => void;
 }
-
-interface SettingsSectionProps {
-    title: string;
-    children: React.ReactNode;
-}
-
-const SettingsSection = ({ title, children, sectionId }: SettingsSectionProps & { sectionId?: string }) => (
-    <div className="space-y-4" data-settings-section={sectionId}>
-        <h3 className="text-lg font-medium tracking-tight text-foreground">{title}</h3>
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-            {children}
-        </div>
-    </div>
-);
-
-interface SettingsRowProps {
-    icon: React.ElementType;
-    label: string;
-    value?: string;
-    action?: React.ReactNode;
-    onClick?: () => void;
-    description?: string;
-    stackActionOnMobile?: boolean;
-}
-
-const SettingsRow = ({ icon: Icon, label, value, action, onClick, description, stackActionOnMobile = true }: SettingsRowProps) => (
-    <div
-        className={cn(
-            "flex justify-between gap-4 p-4 border-b border-border/50 last:border-0 transition-colors",
-            stackActionOnMobile ? "flex-col items-stretch sm:flex-row sm:items-center" : "items-center",
-            onClick ? "cursor-pointer hover:bg-muted/30" : ""
-        )}
-        onClick={onClick}
-    >
-        <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-3">
-                <div className="shrink-0 p-2 rounded-lg bg-muted text-muted-foreground">
-                    <Icon className="h-4 w-4" />
-                </div>
-                <span className="text-sm font-medium">{label}</span>
-            </div>
-            {description && <p className="mt-1.5 text-xs leading-5 text-muted-foreground sm:pl-11">{description}</p>}
-        </div>
-        <div className={cn("flex items-center gap-3", stackActionOnMobile && "w-full pl-11 sm:w-auto sm:shrink-0 sm:pl-0")}>
-            {value && <span className="text-sm text-muted-foreground">{value}</span>}
-            {action && <div className={cn(stackActionOnMobile && "w-full sm:w-auto")}>{action}</div>}
-            {!action && onClick && <ChevronRight className="h-4 w-4 text-muted-foreground/50" />}
-        </div>
-    </div>
-);
 
 interface ActionNoticeState {
     title: string;
@@ -104,21 +58,21 @@ const StorageProbeStatus = ({ account, busy, feedback, onProbe }: { account: Sto
     return (
         <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-xs">
             <span className={cn(
-                "inline-flex items-center gap-1 rounded-md border px-2 py-1",
-                status === 'available' && "border-emerald-200 bg-emerald-50 text-emerald-700",
-                status === 'failed' && "border-red-200 bg-red-50 text-red-700",
+                "tv-badge settings-status inline-flex items-center gap-1",
+                status === 'available' && "settings-status--success",
+                status === 'failed' && "settings-status--danger",
                 !status && "border-border bg-muted text-muted-foreground",
             )} title={account.last_probe_error || undefined}>
                 <Icon className="h-3.5 w-3.5" />
                 {label}
             </span>
-            {account.last_probed_at && <span className="text-muted-foreground break-words">{new Date(account.last_probed_at).toLocaleString(i18n.resolvedLanguage || i18n.language, { hour12: false })}</span>}
-            <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs" disabled={busy} onClick={onProbe}>
+            {account.last_probed_at && <span className="text-muted-foreground break-words">{formatDateTime(account.last_probed_at, i18n.resolvedLanguage || i18n.language)}</span>}
+            <Button size="sm" variant="ghost" className="gap-1 px-2 text-xs" disabled={busy} onClick={onProbe}>
                 {busy ? <IndeterminateSpinner label={t('settings.probe.testing')} size="sm" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 {t('settings.probe.test')}
             </Button>
-            {feedback && <span className={cn("min-w-0 basis-full rounded-md px-2 py-1.5 font-medium [overflow-wrap:anywhere]", feedback.tone === 'success' ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")} role="status" aria-live="polite">{feedback.tone === 'success' ? <CheckCircle className="mr-1 inline h-3.5 w-3.5" /> : <XCircle className="mr-1 inline h-3.5 w-3.5" />}{feedback.message}</span>}
-            {!feedback && status === 'failed' && account.last_probe_error && <p className="min-w-0 basis-full [overflow-wrap:anywhere] text-red-700">{account.last_probe_error}</p>}
+            {feedback && <span className={cn("min-w-0 basis-full rounded-md px-2 py-1.5 font-medium [overflow-wrap:anywhere]", feedback.tone === 'success' ? "settings-status--success" : "settings-status--danger")} role="status" aria-live="polite">{feedback.tone === 'success' ? <CheckCircle className="mr-1 inline h-3.5 w-3.5" /> : <XCircle className="mr-1 inline h-3.5 w-3.5" />}{feedback.message}</span>}
+            {!feedback && status === 'failed' && account.last_probe_error && <p className="min-w-0 basis-full [overflow-wrap:anywhere] settings-text-danger">{account.last_probe_error}</p>}
         </div>
     );
 };
@@ -184,7 +138,6 @@ const ActionDialog = ({ state, input, onInput, onCancel, onConfirm }: {
                     <p id="settings-action-message" className="whitespace-pre-line text-sm leading-6 text-muted-foreground">{state.message}</p>
                     {state.mode === 'prompt' && (
                         <input
-                            autoFocus
                             type={state.inputType || 'text'}
                             value={input}
                             onChange={event => onInput(event.target.value)}
@@ -373,11 +326,117 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
         }
     };
 
-    const reloadTelegramBotConfig = async () => {
-        const data = await fileApi.getTelegramBotConfig();
-        setTelegramBotConfig(data);
-        return data;
+    const botStatusRequest = useRef<AbortController | null>(null);
+    const botRetryRequest = useRef<AbortController | null>(null);
+    const [isRefreshingBot, setIsRefreshingBot] = useState(false);
+    const [isRetryingBot, setIsRetryingBot] = useState(false);
+    const [botStatusError, setBotStatusError] = useState(false);
+    const [botRetryError, setBotRetryError] = useState('');
+    const [botPollEpoch, setBotPollEpoch] = useState(0);
+    const botSectionVisible = useRef(false);
+
+    const reloadTelegramBotConfig = useCallback(async () => {
+        if (!botSectionVisible.current) return;
+        botStatusRequest.current?.abort();
+        const controller = new AbortController();
+        botStatusRequest.current = controller;
+        setIsRefreshingBot(true);
+        const timeout = window.setTimeout(() => controller.abort(), 15_000);
+        try {
+            const data = await fileApi.getTelegramBotConfig(controller.signal);
+            if (!controller.signal.aborted) {
+                setTelegramBotConfig(data);
+                setBotStatusError(false);
+            }
+            return data;
+        } catch {
+            if (botStatusRequest.current === controller && botSectionVisible.current) setBotStatusError(true);
+        } finally {
+            window.clearTimeout(timeout);
+            if (botStatusRequest.current === controller) {
+                botStatusRequest.current = null;
+                if (botSectionVisible.current) setIsRefreshingBot(false);
+            }
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeSection !== 'telegram') return;
+        let timer: number | undefined;
+        let disposed = false;
+        let pollGeneration = 0;
+        const deadline = Date.now() + 120_000;
+        const stop = () => {
+            window.clearTimeout(timer);
+            pollGeneration += 1;
+            botSectionVisible.current = false;
+            const request = botStatusRequest.current;
+            botStatusRequest.current = null;
+            request?.abort();
+            botRetryRequest.current?.abort();
+        };
+        const poll = async () => {
+            if (disposed || !botSectionVisible.current) return;
+            const generation = pollGeneration;
+            if (!botRetryRequest.current) await reloadTelegramBotConfig();
+            if (!disposed && generation === pollGeneration && botSectionVisible.current && Date.now() + 5_000 < deadline) timer = window.setTimeout(poll, 5_000);
+        };
+        const visibilityChanged = () => {
+            stop();
+            if (document.visibilityState === 'visible') {
+                botSectionVisible.current = true;
+                setIsRefreshingBot(false);
+                setIsRetryingBot(false);
+                if (Date.now() < deadline) void poll();
+            }
+        };
+        visibilityChanged();
+        document.addEventListener('visibilitychange', visibilityChanged);
+        return () => {
+            disposed = true;
+            stop();
+            document.removeEventListener('visibilitychange', visibilityChanged);
+        };
+    }, [activeSection, botPollEpoch, reloadTelegramBotConfig]);
+
+    const botRetryBlocked = Boolean(telegramBotConfig?.busy || telegramBotConfig?.cleanupBlocked || telegramBotConfig?.nextRetryAt
+        || (telegramBotConfig?.retryAllowedAt && Date.parse(telegramBotConfig.retryAllowedAt) > Date.now()));
+
+    const handleRetryTelegramBot = async () => {
+        if (botRetryRequest.current || botRetryBlocked || isChangingTelegramPin || isSavingTelegramBot || !telegramBotConfig?.configured || !telegramBotConfig.enabled || telegramBotConfig.status === 'ready') return;
+        const controller = new AbortController();
+        botRetryRequest.current = controller;
+        botStatusRequest.current?.abort();
+        setIsRetryingBot(true);
+        setBotRetryError('');
+        const timeout = window.setTimeout(() => controller.abort(), 20_000);
+        try {
+            await fileApi.retryTelegramBotConnection(controller.signal);
+        } catch (error: unknown) {
+            if (botSectionVisible.current) setBotRetryError(errorMessage(error) || t('settings.botConnection.retryFailed'));
+        } finally {
+            window.clearTimeout(timeout);
+            if (botSectionVisible.current) {
+                // Read authoritative runtime state even when the retry request failed.
+                await reloadTelegramBotConfig();
+                if (botSectionVisible.current) {
+                    setIsRetryingBot(false);
+                    setBotPollEpoch(value => value + 1);
+                }
+            }
+            botRetryRequest.current = null;
+        }
     };
+
+    const botStatus = !telegramBotConfig ? 'loading'
+        : !telegramBotConfig.configured ? 'not_configured'
+        : !telegramBotConfig.enabled ? 'disabled'
+        : telegramBotConfig.status === 'ready' ? 'ready'
+        : telegramBotConfig.status === 'starting' ? 'connecting'
+        : telegramBotConfig.nextRetryAt ? 'waiting'
+        : telegramBotConfig.status === 'reconnecting' ? 'connecting'
+        : telegramBotConfig.status === 'auth_failed' ? 'auth_failed'
+        : telegramBotConfig.status === 'stopped' ? 'stopped' : 'error';
 
     const clearTelegramBotInputs = () => {
         setTelegramBotToken('');
@@ -436,7 +495,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
         setIsSavingTelegramBot(true);
         try {
             const result = await fileApi.testTelegramBotConfig({ botToken: telegramBotToken, apiId: telegramApiId, apiHash: telegramApiHash });
-            await showNotice(t('settings.remaining.shared.credentialProbeSuccess', { value1: result.bot.username ? `: @${result.bot.username}` : '' }));
+            await showNotice(t('settings.botConnection.probeSuccess', { value1: result.bot.username ? `: @${result.bot.username}` : '' }));
         } catch (error: unknown) {
             await showNotice(errorMessage(error) || t('settings.remaining.copy.150'), t('settings.remaining.copy.151'));
         } finally { setIsSavingTelegramBot(false); }
@@ -455,6 +514,8 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
             setShowTelegramBotForm(false);
             await showNotice(t('settings.remaining.copy.154'));
         } catch (error: unknown) {
+            await reloadTelegramBotConfig();
+            setBotPollEpoch(value => value + 1);
             await showNotice(errorMessage(error) || t('settings.remaining.copy.155'), t('settings.remaining.copy.153'));
         } finally { setIsSavingTelegramBot(false); }
     };
@@ -574,7 +635,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
     useEffect(() => {
         const loadConfig = async () => {
             try {
-                const [, , , versionStatus] = await Promise.all([reloadStorageConfig(), reloadAdvancedTasks(), reloadTelegramBotConfig(), fileApi.getUpdateStatus()]);
+                const [, , versionStatus] = await Promise.all([reloadStorageConfig(), reloadAdvancedTasks(), fileApi.getUpdateStatus()]);
                 setUpdateStatus(versionStatus);
             } catch (error) {
                 console.error("Failed to load storage config:", error);
@@ -648,7 +709,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
         };
         const providerName = providerNames[provider];
 
-        if (!(await requestConfirmation(t('settings.remaining.copy.184', { value1: providerName, value2: accountId ? t('settings.remaining.shared.specifiedAccount') : '' }), t('settings.remaining.copy.185')))) return;
+        if (!(await requestConfirmation(t('uiAudit.switchNote', { from: `${config?.provider} / ${config?.accounts.find(a => a.id === config.activeAccountId)?.name || '—'}`, to: `${providerName} / ${config?.accounts.find(a => a.id === accountId)?.name || '—'}` }) + '\n\n' + t('settings.remaining.copy.184', { value1: providerName, value2: accountId ? t('settings.remaining.shared.specifiedAccount') : '' }), t('settings.remaining.copy.185')))) return;
 
         setIsSaving(true);
         try {
@@ -780,7 +841,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
             const impactText = [
                 t('settings.remaining.copy.216', { value1: accountName }),
                 t('settings.remaining.copy.217', { value1: impact.fileCount }),
-                t('settings.remaining.copy.218', { value1: (impact.totalSizeBytes / 1024 / 1024).toFixed(2) }),
+                t('settings.remaining.copy.218', { value1: formatNumber(impact.totalSizeBytes / 1024 / 1024, i18n.resolvedLanguage || i18n.language, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }),
                 t('settings.remaining.copy.219', { value1: impact.folderCount }),
                 t('settings.remaining.copy.220', { value1: impact.activeLeaseCount, value2: impact.activeTaskCount, value3: impact.activeUploadCount }),
                 '',
@@ -1033,24 +1094,12 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
         }
     };
 
-    const handleRevokeAllSessions = async () => {
-        if (!(await requestConfirmation(t('settings.cards.security.signOutAll.confirmation'), t('settings.cards.security.signOutAll.title')))) return;
-        const result = await authService.revokeAllSessions();
-        if (!result.success) return void await showNotice(result.error || t('settings.cards.security.signOutAll.failed'), t('settings.remaining.copy.139'));
-        onSignedOut?.();
-    };
-
-    const handleLogoutCurrentSession = async () => {
-        await authService.logout();
-        onSignedOut?.();
-    };
-
     return (
         <motion.div
             data-testid="settings-page"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mx-auto mt-6 w-full min-w-0 max-w-5xl space-y-8 pb-10"
+            className="settings-surface settings-page"
         >
             <AnimatePresence>
                 {actionNotice && <ActionNotice state={actionNotice} onClose={closeActionNotice} />}
@@ -1064,28 +1113,27 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                     onConfirm={() => closeActionDialog(true)}
                 />
             )}
-            <div className="flex min-w-0 items-start gap-3 sm:items-center">
-                <div className="shrink-0 rounded-xl bg-secondary p-3">
-                    <Palette className="h-6 w-6 text-foreground" />
-                </div>
+            <header className="tv-page-header settings-page__header">
+                <span className="settings-icon" aria-hidden="true"><Palette className="h-5 w-5" /></span>
                 <div className="min-w-0">
-                    <h2 className="text-2xl font-bold tracking-tight">{t("settings.title")}</h2>
-                    <p className="text-muted-foreground">{t("settings.subtitle")}</p>
+                    <h2>{t(SETTINGS_SECTIONS.find(section => section.id === activeSection)!.labelKey)}</h2>
+                    <p className="tv-muted">{t("settings.subtitle")}</p>
                 </div>
-            </div>
+            </header>
 
             <nav
                 data-testid="settings-tabs"
-                className="flex w-full max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain rounded-xl border border-border bg-background/95 p-2 shadow-sm backdrop-blur touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                className="settings-nav"
                 aria-label={t('settings.title')}
             >
                 {SETTINGS_SECTIONS.map(section => (
                     <Button
                         key={section.id}
                         size="sm"
-                        variant={activeSection === section.id ? 'default' : 'ghost'}
-                        className="min-h-10 shrink-0 whitespace-nowrap"
+                        variant="ghost"
+                        className="settings-nav__item"
                         onClick={() => onSectionChange(section.id)}
+                        ref={element => { if (element && activeSection === section.id) { const nav = element.parentElement; if (nav) nav.scrollLeft = Math.max(0, element.offsetLeft - nav.offsetLeft - 8); } }}
                         aria-current={activeSection === section.id ? 'page' : undefined}
                     >
                         {t(section.labelKey)}
@@ -1093,32 +1141,30 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                 ))}
             </nav>
 
-            {activeSection === 'general' && <>
+            {activeSection === 'general' && <SettingsWorkspace guide={null} className="settings-workspace--general">
             {/* General Section: Language & Theme */}
-            <SettingsSection title={t("settings.general.title")}>
+            <div className="tv-panel settings-section">
                 <SettingsRow
                     icon={Globe}
                     label={t("settings.general.language")}
                     action={<LanguageToggle />}
                 />
-            {/* Theme controls live in the global header so appearance is reachable from every page. */}
-            </SettingsSection>
+            <AppearanceSettings />
+            </div>
             <SettingsSection title={t('updates.settingsTitle')}>
-                <SettingsRow
-                    icon={PackageCheck}
-                    label="TG Vault"
-                    description={updateStatus?.checkedAt
-                        ? `${t('updates.lastChecked', { time: new Date(updateStatus.checkedAt).toLocaleString(i18n.resolvedLanguage || i18n.language) })}${updateStatus.stale ? t('updates.staleSuffix') : ''}`
-                        : updateStatus?.enabled === false ? t('updates.disabled') : t('updates.notChecked')}
-                    stackActionOnMobile
-                    action={
-                        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-                            <span className="text-xs text-muted-foreground">{t('updates.current', { version: updateStatus?.currentVersion || '—' })}</span>
-                            <span className={cn("rounded-full px-2 py-1 text-xs font-semibold", updateStatus?.updateAvailable ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-200" : "bg-muted text-muted-foreground")}>
+                <div className="settings-version-compact">
+                    <div className="settings-version-compact__facts">
+                            <span className="text-[12px] text-muted-foreground">{t('updates.current', { version: updateStatus?.currentVersion || '—' })}</span>
+                            <span className={cn("rounded-full px-2 py-1 text-[12px] font-semibold", updateStatus?.updateAvailable ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-200" : "bg-muted text-muted-foreground")}>
                                 {updateStatus?.updateAvailable ? t('updates.latest', { version: updateStatus.latestVersion }) : updateStatus?.latestVersion ? t('updates.upToDate') : t('updates.waiting')}
                             </span>
+                    </div>
+                    <p className="settings-help">{updateStatus?.checkedAt
+                        ? `${t('updates.lastChecked', { time: formatDateTime(updateStatus.checkedAt, i18n.resolvedLanguage || i18n.language) })}${updateStatus.stale ? t('updates.staleSuffix') : ''}`
+                        : updateStatus?.enabled === false ? t('updates.disabled') : t('updates.notChecked')}</p>
+                    <div className="settings-version-compact__actions">
                             {updateStatus?.releaseUrl && (
-                                <a href={updateStatus.releaseUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-muted">
+                                <a href={updateStatus.releaseUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-[12px] font-medium hover:bg-muted">
                                     {t('updates.releaseNotes')} <ExternalLink className="h-3.5 w-3.5" />
                                 </a>
                             )}
@@ -1126,48 +1172,41 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                 {isCheckingUpdates ? <IndeterminateSpinner label={t('updates.checking')} size="sm" /> : <RefreshCw className="h-3.5 w-3.5" />}
                                 {t('updates.checkNow')}
                             </Button>
-                        </div>
-                    }
-                />
+                    </div>
+                </div>
             </SettingsSection>
-            </>}
+            </SettingsWorkspace>}
 
-            {activeSection === 'security' && <>
+            {activeSection === 'security' && <SettingsWorkspace guide={null}>
             {/* Security Section */}
             {/* i18n source: 安全设置 */}
             <SettingsSection title={t('settings.security.title')}>
                 <div className="border-b border-border/50 p-4 space-y-4">
                     <div className="flex items-start gap-3">
-                        <div className="p-2 rounded-lg bg-muted text-muted-foreground"><KeyRound className="h-4 w-4" /></div>
+                        <div className="settings-icon"><KeyRound className="h-4 w-4" /></div>
                         <div>
-                            <p className="text-sm font-medium">{t('settings.cards.security.changePassword.title')}</p>
-                            <p className="text-xs text-muted-foreground mt-1">{t('settings.cards.security.changePassword.description')}</p>
+                            <p className="text-[13px] font-medium">{t('settings.cards.security.changePassword.title')}</p>
+                            <p className="text-[12px] text-muted-foreground mt-1">{t('settings.cards.security.changePassword.description')}</p>
                         </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                        <input type="password" autoComplete="current-password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} placeholder={t('settings.cards.security.changePassword.currentPassword')} className="h-10 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
-                        <input type="password" autoComplete="new-password" value={newPassword} onChange={event => setNewPassword(event.target.value)} placeholder={t('settings.cards.security.changePassword.newPassword')} className="h-10 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
-                        <input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} placeholder={t('settings.cards.security.changePassword.confirmPassword')} className="h-10 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
+                    <div className="settings-form-grid settings-form-grid--password">
+                        <SettingsField label={t('settings.cards.security.changePassword.currentPassword')}>
+                            <input type="password" autoComplete="current-password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} placeholder={t('settings.cards.security.changePassword.currentPassword')} className="h-10 px-3" />
+                        </SettingsField>
+                        <SettingsField label={t('settings.cards.security.changePassword.newPassword')}>
+                            <input type="password" autoComplete="new-password" value={newPassword} onChange={event => setNewPassword(event.target.value)} placeholder={t('settings.cards.security.changePassword.newPassword')} className="h-10 px-3" />
+                        </SettingsField>
+                        <SettingsField label={t('settings.cards.security.changePassword.confirmPassword')}>
+                            <input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} placeholder={t('settings.cards.security.changePassword.confirmPassword')} className="h-10 px-3" />
+                        </SettingsField>
                     </div>
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-                        <p className="text-xs text-destructive">{passwordError}</p>
+                        <p className="text-[12px] text-destructive">{passwordError}</p>
                         <Button size="sm" onClick={handleChangePassword} disabled={isChangingPassword || !currentPassword || !newPassword || !confirmPassword}>
                             {t(isChangingPassword ? 'settings.cards.security.changePassword.changing' : 'settings.cards.security.changePassword.changeAndSignOut')}
                         </Button>
                     </div>
                 </div>
-                <SettingsRow
-                    icon={LogOut}
-                    label={t('settings.cards.security.signOutCurrent.title')}
-                    description={t('settings.cards.security.signOutCurrent.description')}
-                    action={<Button size="sm" variant="outline" onClick={handleLogoutCurrentSession}>{t('settings.cards.security.signOutCurrent.action')}</Button>}
-                />
-                <SettingsRow
-                    icon={UserX}
-                    label={t('settings.cards.security.signOutAll.title')}
-                    description={t('settings.cards.security.signOutAll.description')}
-                    action={<Button size="sm" variant="outline" className="text-destructive" onClick={handleRevokeAllSessions}>{t('settings.cards.security.signOutAll.action')}</Button>}
-                />
                 <SettingsRow
                     icon={Shield}
                     label={t('settings.cards.security.twoFactor.title')}
@@ -1175,9 +1214,9 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                     action={
                         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                             {is2FAActivated && (
-                                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 text-green-600 dark:text-green-400">
+                                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 settings-text-success">
                                     <ShieldCheck className="h-3.5 w-3.5" />
-                                    <span className="text-xs font-semibold">{t('settings.cards.security.twoFactor.enabled')}</span>
+                                    <span className="text-[12px] font-semibold">{t('settings.cards.security.twoFactor.enabled')}</span>
                                 </div>
                             )}
                             <Button
@@ -1214,30 +1253,33 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             <div className="p-6 flex flex-col items-center text-center space-y-4">
                                 {twoFAQrCode ? (
                                     <div className="max-w-xs space-y-4">
-                                        <div className="p-3 bg-white rounded-xl shadow-inner inline-block mx-auto">
+                                        <div className="settings-qr">
                                             <img src={twoFAQrCode} alt={t('settings.cards.security.twoFactor.qrAlt')} className="w-48 h-48" />
                                         </div>
 
                                         <div className="space-y-2">
-                                            <p className="text-sm font-medium">{t('settings.cards.security.twoFactor.scanTitle')}</p>
-                                            <p className="text-xs text-muted-foreground">
+                                            <p className="text-[13px] font-medium">{t('settings.cards.security.twoFactor.scanTitle')}</p>
+                                            <p className="text-[12px] text-muted-foreground">
                                                 {t('settings.cards.security.twoFactor.scanDescription')}
                                             </p>
                                         </div>
 
                                         {!is2FAActivated ? (
                                             <div className="pt-2 space-y-3">
-                                                <p className="text-sm font-medium">{t('settings.cards.security.twoFactor.verifyTitle')}</p>
-                                                <p className="text-xs text-muted-foreground">
+                                                <p className="text-[13px] font-medium">{t('settings.cards.security.twoFactor.verifyTitle')}</p>
+                                                <p className="text-[12px] text-muted-foreground">
                                                     {t('settings.cards.security.twoFactor.verifyDescription')}
                                                 </p>
-                                                <div className="flex gap-2 justify-center">
+                                                <div className="settings-actions justify-center">
                                                     <input
                                                         type="text"
                                                         maxLength={6}
+                                                        aria-label={t('settings.cards.security.twoFactor.verifyTitle')}
+                                                        autoComplete="one-time-code"
+                                                        inputMode="numeric"
                                                         value={activationCode}
                                                         onChange={(e) => setActivationCode(e.target.value.replace(/\D/g, ''))}
-                                                        className="w-32 px-3 py-2 text-center text-lg tracking-widest font-mono rounded-lg border border-border bg-background focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                                        className="w-32 px-3 py-2 text-center text-lg tracking-widest font-mono"
                                                         placeholder="000000"
                                                     />
                                                     <Button
@@ -1250,11 +1292,11 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                             </div>
                                         ) : (
                                             <div className="pt-2">
-                                                <div className="flex items-center gap-2 justify-center text-green-600 dark:text-green-400">
+                                                <div className="flex items-center gap-2 justify-center settings-text-success">
                                                     <ShieldCheck className="h-4 w-4" />
-                                                    <p className="text-sm font-medium">{t('settings.cards.security.twoFactor.activeStatus')}</p>
+                                                    <p className="text-[13px] font-medium">{t('settings.cards.security.twoFactor.activeStatus')}</p>
                                                 </div>
-                                                <p className="text-xs text-muted-foreground mt-1">
+                                                <p className="text-[12px] text-muted-foreground mt-1">
                                                     {t('settings.cards.security.twoFactor.activeDescription')}
                                                 </p>
                                             </div>
@@ -1263,7 +1305,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                 ) : (
                                     <div className="py-4 text-destructive flex flex-col items-center gap-2">
                                         <ShieldAlert className="h-8 w-8" />
-                                        <p className="text-sm">{twoFAError || t('settings.cards.security.twoFactor.loadFailed')}</p>
+                                        <p className="text-[13px]">{twoFAError || t('settings.cards.security.twoFactor.loadFailed')}</p>
                                     </div>
                                 )}
                             </div>
@@ -1276,17 +1318,17 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                 <div className={cn("p-4 sm:p-5", config?.allowUnsafeWebdavEndpoints && "bg-destructive/[0.035]")}>
                     <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 items-start gap-3">
-                            <div className={cn("rounded-lg p-2", config?.allowUnsafeWebdavEndpoints ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}>
+                            <div className={cn("rounded-[7px] p-2", config?.allowUnsafeWebdavEndpoints ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}>
                                 <Network className="h-4 w-4" />
                             </div>
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <p className="text-sm font-medium">{t('settings.cards.security.unsafeWebdav.title')}</p>
+                                    <p className="text-[13px] font-medium">{t('settings.cards.security.unsafeWebdav.title')}</p>
                                     <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", config?.allowUnsafeWebdavEndpoints ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}>
                                         {t(config?.allowUnsafeWebdavEndpoints ? 'settings.cards.security.unsafeWebdav.highRisk' : 'settings.cards.security.unsafeWebdav.recommendedOff')}
                                     </span>
                                 </div>
-                                <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">{t('settings.cards.security.unsafeWebdav.description')}</p>
+                                <p className="mt-1 max-w-2xl text-[12px] leading-5 text-muted-foreground">{t('settings.cards.security.unsafeWebdav.description')}</p>
                             </div>
                         </div>
                         <button
@@ -1296,35 +1338,34 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             aria-label={t('settings.cards.security.unsafeWebdav.title')}
                             onClick={handleUnsafeWebdavToggle}
                             disabled={!config || isSavingWebdavSecurity}
-                            className={cn(
-                                "relative h-7 w-12 shrink-0 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50",
-                                config?.allowUnsafeWebdavEndpoints ? "border-destructive bg-destructive" : "border-border bg-muted",
-                            )}
+                            className="settings-switch-target disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            <span className={cn("absolute left-0 top-0.5 h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform", config?.allowUnsafeWebdavEndpoints ? "translate-x-6" : "translate-x-0.5")} />
+                            <span aria-hidden="true" className={cn("settings-switch-track", config?.allowUnsafeWebdavEndpoints ? "border-destructive bg-destructive" : "border-border bg-muted")}>
+                                <span className={cn("settings-switch-thumb absolute left-0 top-0.5 h-[22px] w-[22px] rounded-full shadow-sm transition-transform", config?.allowUnsafeWebdavEndpoints ? "translate-x-6" : "translate-x-0.5")} />
+                            </span>
                             <span className="sr-only">{t(isSavingWebdavSecurity ? 'settings.cards.security.unsafeWebdav.saving' : config?.allowUnsafeWebdavEndpoints ? 'settings.cards.security.unsafeWebdav.enabled' : 'settings.cards.security.unsafeWebdav.disabled')}</span>
                         </button>
                     </div>
                 </div>
             </SettingsSection>
-            </>}
+            </SettingsWorkspace>}
 
-            {activeSection === 'maintenance' && <>
+            {activeSection === 'maintenance' && <SettingsWorkspace guide={null}>
             {/* i18n source: 高级任务设置 */}
             <SettingsSection title={t('settings.maintenance.advancedTasks')}>
                 {advancedTasks ? <div className="divide-y divide-border/50">
                     <SettingsRow icon={Gauge} label={t('settings.cards.maintenance.chunkConcurrency.title')} description={t('settings.cards.maintenance.chunkConcurrency.description')} action={
-                        <select className="h-10 rounded-lg border border-border bg-background px-3" value={advancedTasks.telegramDownloadWorkers} onChange={event => void updateAdvancedTask({ telegramDownloadWorkers: Number(event.target.value) })}>
+                        <select aria-label={t('settings.cards.maintenance.chunkConcurrency.title')} className="h-10 px-3" value={advancedTasks.telegramDownloadWorkers} onChange={event => void updateAdvancedTask({ telegramDownloadWorkers: Number(event.target.value) })}>
                             {[4, 8, 12, 16].map(value => <option key={value} value={value}>{value}</option>)}
                         </select>
                     } />
                     <SettingsRow icon={Gauge} label={t('settings.cards.maintenance.fileConcurrency.title')} description={t('settings.cards.maintenance.fileConcurrency.description')} action={
-                        <select className="h-10 rounded-lg border border-border bg-background px-3" value={advancedTasks.telegramFileConcurrency} onChange={event => void updateAdvancedTask({ telegramFileConcurrency: Number(event.target.value) })}>
+                        <select aria-label={t('settings.cards.maintenance.fileConcurrency.title')} className="h-10 px-3" value={advancedTasks.telegramFileConcurrency} onChange={event => void updateAdvancedTask({ telegramFileConcurrency: Number(event.target.value) })}>
                             {[1, 2, 3, 4].map(value => <option key={value} value={value}>{value}</option>)}
                         </select>
                     } />
                     <SettingsRow icon={Copy} label={t('settings.cards.maintenance.duplicateMode.title')} description={t('settings.cards.maintenance.duplicateMode.description')} action={
-                        <select className="h-10 rounded-lg border border-border bg-background px-3" value={advancedTasks.duplicateMode} onChange={event => void updateAdvancedTask({ duplicateMode: event.target.value as 'copy' | 'skip' })}>
+                        <select aria-label={t('settings.cards.maintenance.duplicateMode.title')} className="h-10 px-3" value={advancedTasks.duplicateMode} onChange={event => void updateAdvancedTask({ duplicateMode: event.target.value as 'copy' | 'skip' })}>
                             <option value="copy">{t('settings.cards.maintenance.duplicateMode.copy')}</option><option value="skip">{t('settings.cards.maintenance.duplicateMode.skip')}</option>
                         </select>
                     } />
@@ -1338,7 +1379,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             {t(advancedTasks.autoCleanupOrphans ? 'settings.cards.maintenance.enabled' : 'settings.cards.maintenance.disabled')}
                         </Button>
                     } />
-                </div> : <div className="p-6 text-sm text-muted-foreground">{t('settings.cards.maintenance.loadingAdvanced')}</div>}
+                </div> : <div className="p-6 text-[13px] text-muted-foreground">{t('settings.cards.maintenance.loadingAdvanced')}</div>}
             </SettingsSection>
             {/* i18n source: 数据维护 */}
             <SettingsSection title={t('settings.maintenance.title')}>
@@ -1351,13 +1392,13 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                         <select
                             value={advancedTasks.telegramDownloadHistoryPolicy}
                             onChange={(event) => void updateAdvancedTask({ telegramDownloadHistoryPolicy: event.target.value as AdvancedTaskSettings['telegramDownloadHistoryPolicy'] }).catch((error: any) => showNotice(errorMessage(error) || t('settings.cards.maintenance.history.updateFailed'), t('settings.remaining.copy.139')))}
-                            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-auto sm:min-w-48"
+                            className="h-10 w-full px-3 focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-auto sm:min-w-48"
                             aria-label={t('settings.cards.maintenance.history.policyLabel')}
                         >
                             <option value="errors_only">{t('settings.cards.maintenance.history.errorsOnly')}</option>
                             <option value="all">{t('settings.cards.maintenance.history.all')}</option>
                         </select>
-                    ) : <span className="text-sm text-muted-foreground">{t('settings.cards.maintenance.loading')}</span>}
+                    ) : <span className="text-[13px] text-muted-foreground">{t('settings.cards.maintenance.loading')}</span>}
                 />
                 <SettingsRow
                     icon={Trash2}
@@ -1365,11 +1406,12 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                     description={t('settings.cards.maintenance.cleanupHistory.description')}
                     stackActionOnMobile
                     action={
-                        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center sm:justify-end">
+                        <div className="settings-actions settings-actions--cleanup">
                             <select
+                                aria-label={t('settings.cards.maintenance.cleanupHistory.title')}
                                 value={cleanupRetentionDays}
                                 onChange={(e) => setCleanupRetentionDays(Number(e.target.value))}
-                                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none"
+                                className="h-10 w-full px-3"
                                 disabled={isCleaningDownloadItems}
                             >
                                 {[1, 7, 30, 90].map(days => <option key={days} value={days}>{t('settings.cards.maintenance.cleanupHistory.keepDays', { count: days })}</option>)}
@@ -1377,7 +1419,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-10 w-full whitespace-nowrap"
+                                className="w-full"
                                 onClick={handleCleanupDownloadItems}
                                 disabled={isCleaningDownloadItems}
                             >
@@ -1387,74 +1429,92 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                     }
                 />
             </SettingsSection>
-            </>}
+            </SettingsWorkspace>}
 
-            {activeSection === 'telegram' && <>
+            {activeSection === 'telegram' && <div className="settings-group settings-group--telegram">
             {/* Telegram Download Section */}
             {/* i18n source: Telegram Bot 连接 */}
             <SettingsSection title={t('settings.telegram.botConnection')}>
                 <div className="p-4 space-y-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="settings-bot-overview">
                         <div className="flex min-w-0 items-start gap-3">
-                            <div className="p-2 rounded-lg bg-muted text-muted-foreground"><KeyRound className="h-4 w-4" /></div>
+                            <div className="settings-icon"><KeyRound className="h-4 w-4" /></div>
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-medium">{t('settings.remaining.copy.021')}</span>
-                                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", telegramBotConfig?.status === 'ready' ? "bg-green-500/10 text-green-600" : telegramBotConfig?.configured ? "bg-amber-500/10 text-amber-700" : "bg-muted text-muted-foreground")}>{telegramBotConfig?.status === 'ready' ? t('settings.remaining.copy.319') : telegramBotConfig?.configured ? t('settings.remaining.copy.320') : t('settings.remaining.copy.321')}</span>
-                                    {telegramBotConfig?.source === 'environment' && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-600">{t('settings.remaining.copy.022')}</span>}
-                                    {telegramBotConfig?.source === 'web' && <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[11px] font-semibold text-green-600">{t('settings.remaining.copy.023')}</span>}
+                                    <span className="text-[13px] font-medium">{t('settings.remaining.copy.021')}</span>
+                                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", telegramBotConfig?.status === 'ready' ? "bg-green-500/10 settings-text-success" : telegramBotConfig?.configured ? "bg-amber-500/10 settings-text-warning" : "bg-muted text-muted-foreground")}>{t(`settings.botConnection.${botStatus}`)}</span>
+                                    {telegramBotConfig?.source === 'environment' && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-primary">{t('settings.remaining.copy.022')}</span>}
+                                    {telegramBotConfig?.source === 'web' && <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[11px] font-semibold settings-text-success">{t('settings.remaining.copy.023')}</span>}
                                 </div>
-                                <p className="mt-1 text-xs text-muted-foreground">{t('settings.remaining.copy.024')}</p>
-                                {telegramBotConfig?.configured && <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                                <p className="mt-1 text-[12px] text-muted-foreground">{t('settings.remaining.copy.024')}</p>
+                                {telegramBotConfig?.configured && <div className="mt-2 text-[12px] leading-5 text-muted-foreground">
                                     <p>{t('settings.remaining.copy.025')}</p>
                                     {telegramBotConfig.bot?.username && <p>Bot：@{telegramBotConfig.bot.username}</p>}
-                                    {telegramBotConfig.lastConnectedAt && <p>{t('settings.remaining.shared.lastConnected')}{new Date(telegramBotConfig.lastConnectedAt).toLocaleString()}</p>}
+                                    {telegramBotConfig.lastConnectedAt && <p>{t('settings.remaining.shared.lastConnected')}{formatDateTime(telegramBotConfig.lastConnectedAt, i18n.resolvedLanguage || i18n.language)}</p>}
                                     {telegramBotConfig.lastError && <p className="text-destructive">{t('settings.remaining.shared.lastError')}{telegramBotConfig.lastError}</p>}
-                                    {telegramBotConfig.action && <p className="text-amber-700">{telegramBotConfig.action}</p>}
-                                    {telegramBotConfig.status !== 'ready' && <p>{t('settings.remaining.shared.runtimeNotReady')}</p>}
+                                    {telegramBotConfig.action && <p className="settings-text-warning">{telegramBotConfig.action}</p>}
+                                    {telegramBotConfig.enabled && telegramBotConfig.status !== 'ready' && <p>{t('settings.remaining.shared.runtimeNotReady')}</p>}
+                                    {telegramBotConfig.checkedAt && <p>{t('settings.botConnection.checkedAt')}: {formatDateTime(telegramBotConfig.checkedAt, i18n.resolvedLanguage || i18n.language)}</p>}
+                                    {telegramBotConfig.nextRetryAt && telegramBotConfig.enabled && <p>{t('settings.botConnection.nextRetryAt')}: {formatDateTime(telegramBotConfig.nextRetryAt, i18n.resolvedLanguage || i18n.language)}</p>}
+                                    {telegramBotConfig.retryAttempt != null && <p>{t('settings.botConnection.retryAttempt')}: {formatNumber(telegramBotConfig.retryAttempt, i18n.resolvedLanguage || i18n.language)}</p>}
                                 </div>}
                             </div>
                         </div>
                         <div className="w-full sm:w-auto">
                             {telegramBotConfig?.source === 'environment' && <div className="flex flex-wrap gap-2 sm:justify-end"><Button size="sm" onClick={handleMigrateTelegramBot} disabled={isSavingTelegramBot}>{t('settings.remaining.copy.026')}</Button>{telegramBotConfig?.configured && <Button size="sm" variant="outline" disabled={isChangingTelegramPin} onClick={() => { if (showTelegramPinForm) handleCancelTelegramPinChange(); else { handleCancelTelegramBotEdit(); clearTelegramPinChangeInputs(); setTelegramPinVerificationMethod(telegramBotConfig.pinConfigured ? 'current_pin' : 'web_password'); setShowTelegramPinForm(true); } }}>{showTelegramPinForm ? (telegramBotConfig.pinConfigured ? t('settings.remaining.copy.322') : t('settings.remaining.copy.323')) : (telegramBotConfig.pinConfigured ? t('settings.remaining.copy.324') : t('settings.remaining.copy.325'))}</Button>}</div>}
-                            {telegramBotConfig?.source === 'web' && <div className="grid w-full grid-cols-3 gap-1.5 sm:w-auto sm:gap-2">
-                                <Button size="sm" variant="outline" className="min-w-0 whitespace-nowrap px-1 text-[11px] sm:px-3 sm:text-xs" disabled={isSavingTelegramBot} onClick={() => { if (showTelegramBotForm) handleCancelTelegramBotEdit(); else { handleCancelTelegramPinChange(); clearTelegramBotInputs(); setShowTelegramBotForm(true); } }}>{showTelegramBotForm ? t('settings.remaining.copy.326') : t('settings.remaining.copy.327')}</Button>
-                                <Button size="sm" variant="outline" className="min-w-0 whitespace-nowrap px-1 text-[11px] sm:px-3 sm:text-xs" disabled={isChangingTelegramPin} onClick={() => { if (showTelegramPinForm) handleCancelTelegramPinChange(); else { handleCancelTelegramBotEdit(); clearTelegramPinChangeInputs(); setTelegramPinVerificationMethod(telegramBotConfig.pinConfigured ? 'current_pin' : 'web_password'); setShowTelegramPinForm(true); } }}>{showTelegramPinForm ? (telegramBotConfig.pinConfigured ? t('settings.remaining.copy.322') : t('settings.remaining.copy.323')) : (telegramBotConfig.pinConfigured ? t('settings.remaining.copy.324') : t('settings.remaining.copy.325'))}</Button>
-                                <Button size="sm" variant="destructive" className="min-w-0 whitespace-nowrap px-1 text-[11px] sm:px-3 sm:text-xs" onClick={handleDeleteTelegramBot} disabled={isSavingTelegramBot}>{t('settings.remaining.copy.027')}</Button>
+                            {telegramBotConfig?.source === 'web' && <div className="settings-actions settings-actions--bot">
+                                <Button size="sm" variant="outline" className="settings-action" disabled={isSavingTelegramBot} onClick={() => { if (showTelegramBotForm) handleCancelTelegramBotEdit(); else { handleCancelTelegramPinChange(); clearTelegramBotInputs(); setShowTelegramBotForm(true); } }}>{showTelegramBotForm ? t('settings.remaining.copy.326') : t('settings.remaining.copy.327')}</Button>
+                                <Button size="sm" variant="outline" className="settings-action" disabled={isChangingTelegramPin} onClick={() => { if (showTelegramPinForm) handleCancelTelegramPinChange(); else { handleCancelTelegramBotEdit(); clearTelegramPinChangeInputs(); setTelegramPinVerificationMethod(telegramBotConfig.pinConfigured ? 'current_pin' : 'web_password'); setShowTelegramPinForm(true); } }}>{showTelegramPinForm ? (telegramBotConfig.pinConfigured ? t('settings.remaining.copy.322') : t('settings.remaining.copy.323')) : (telegramBotConfig.pinConfigured ? t('settings.remaining.copy.324') : t('settings.remaining.copy.325'))}</Button>
+                                <Button size="sm" variant="destructive" className="settings-action" onClick={handleDeleteTelegramBot} disabled={isSavingTelegramBot}>{t('settings.remaining.copy.027')}</Button>
                             </div>}
                         </div>
-                        {telegramBotConfig?.configured && !telegramBotConfig.pinConfigured && <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-300">{t('settings.remaining.copy.028')}</p>}
-                        {!telegramBotConfig?.pinConfigured && telegramBotConfig?.source === 'environment' && <div className="mt-4 space-y-2"><label className="text-sm font-medium">{t('settings.remaining.copy.029')}</label><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={telegramPin} onChange={event => setTelegramPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('settings.remaining.shared.createPinBeforeMigration')} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" /><p className="text-xs text-muted-foreground">{t('settings.remaining.copy.030')}</p></div>}
+                        {telegramBotConfig?.configured && !telegramBotConfig.pinConfigured && <p className="mt-3 rounded-[7px] border border-amber-300/60 bg-amber-500/10 px-3 py-2.5 text-[13px] settings-text-warning">{t('settings.remaining.copy.028')}</p>}
+                        {!telegramBotConfig?.pinConfigured && telegramBotConfig?.source === 'environment' && <SettingsField label={t('settings.remaining.copy.029')} className="mt-4"><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={telegramPin} onChange={event => setTelegramPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('settings.remaining.shared.createPinBeforeMigration')} className="w-full px-3 py-2" /><p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.030')}</p></SettingsField>}
                     </div>
 
-                    {(!telegramBotConfig?.configured || showTelegramBotForm) && <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-4">
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            <div className="space-y-2 md:col-span-2"><label className="text-sm font-medium">Bot Token</label><input type="password" autoComplete="new-password" value={telegramBotToken} onChange={event => setTelegramBotToken(event.target.value)} placeholder={t('settings.remaining.copy.333')} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div>
-                            <div className="space-y-2"><label className="text-sm font-medium">API ID</label><input type="password" inputMode="numeric" autoComplete="new-password" value={telegramApiId} onChange={event => setTelegramApiId(event.target.value)} placeholder={t('settings.remaining.copy.334')} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div>
-                            <div className="space-y-2"><label className="text-sm font-medium">API Hash</label><input type="password" autoComplete="new-password" value={telegramApiHash} onChange={event => setTelegramApiHash(event.target.value)} placeholder={t('settings.remaining.copy.335')} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div>
-                            {telegramBotConfig?.pinConfigured && <p className="md:col-span-2 rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-muted-foreground">{t('settings.remaining.copy.031')}</p>}
-                            {!telegramBotConfig?.pinConfigured && <div className="space-y-2 md:col-span-2"><label className="text-sm font-medium">{t('settings.remaining.copy.029')}</label><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={telegramPin} onChange={event => setTelegramPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('settings.remaining.shared.pinInitialVerification')} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" /><p className="text-xs text-muted-foreground">{t('settings.remaining.copy.033')}</p></div>}
+                    <div className="space-y-2" data-testid="bot-runtime-controls">
+                        <div className="flex flex-wrap gap-2">
+                            {telegramBotConfig?.configured && telegramBotConfig.enabled && telegramBotConfig.status !== 'ready' && <Button size="sm" onClick={handleRetryTelegramBot} disabled={botRetryBlocked || isRetryingBot || isSavingTelegramBot || isChangingTelegramPin}>{t(isRetryingBot ? 'settings.botConnection.retrying' : 'settings.botConnection.retry')}</Button>}
+                            <Button size="sm" variant="outline" disabled={isRefreshingBot || isRetryingBot || isSavingTelegramBot} onClick={() => setBotPollEpoch(value => value + 1)}>{t(isRefreshingBot ? 'settings.botConnection.refreshing' : 'settings.botConnection.refresh')}</Button>
                         </div>
-                        <div className="flex flex-wrap justify-end gap-2">{telegramBotConfig?.configured && <Button variant="ghost" onClick={handleCancelTelegramBotEdit} disabled={isSavingTelegramBot}>{t('settings.remaining.copy.034')}</Button>}<Button variant="outline" onClick={handleTestTelegramBot} disabled={isSavingTelegramBot || !telegramBotToken || !telegramApiId || !telegramApiHash}>{t('settings.remaining.copy.035')}</Button><Button onClick={handleSaveTelegramBot} disabled={isSavingTelegramBot || !telegramBotToken || !telegramApiId || !telegramApiHash}>{isSavingTelegramBot ? t('settings.remaining.copy.337') : t('settings.remaining.copy.338')}</Button></div>
-                        <p className="text-xs leading-5 text-muted-foreground">{t('settings.remaining.copy.036')}</p>
-                    </div>}
+                        <p className="settings-help">{t('settings.botConnection.scope')}</p>
+                        <p className="settings-help">{t('settings.botConnection.polling')}</p>
+                        <div aria-live="polite">
+                            {telegramBotConfig?.cleanupBlocked && <p className="text-destructive text-sm">{t('settings.botConnection.cleanupBlocked')}</p>}
+                            {telegramBotConfig?.busy && <p className="text-sm">{t('settings.botConnection.busy')}</p>}
+                            {telegramBotConfig?.retryAllowedAt && <p className="text-sm">{t('settings.botConnection.retryAllowedAt')}: {formatDateTime(telegramBotConfig.retryAllowedAt, i18n.resolvedLanguage || i18n.language)}</p>}
+                            {botStatusError && <p className="text-destructive text-sm">{t('settings.botConnection.refreshFailed')}</p>}
+                            {botRetryError && <p className="text-destructive text-sm">{botRetryError}</p>}
+                        </div>
+                    </div>
 
-                    {showTelegramPinForm && telegramBotConfig?.configured && <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-4">
+                    {(!telegramBotConfig?.configured || showTelegramBotForm) && <SettingsFormLayout guide={<p className="settings-help">{t('settings.botConnection.probeHelp')}</p>}>
+                        <div className="settings-form-grid">
+                            <SettingsField label="Bot Token" className="md:col-span-2"><input type="password" autoComplete="new-password" value={telegramBotToken} onChange={event => setTelegramBotToken(event.target.value)} placeholder={t('settings.remaining.copy.333')} className="w-full px-3 py-2" /></SettingsField>
+                            <SettingsField label="API ID"><input type="password" inputMode="numeric" autoComplete="new-password" value={telegramApiId} onChange={event => setTelegramApiId(event.target.value)} placeholder={t('settings.remaining.copy.334')} className="w-full px-3 py-2" /></SettingsField>
+                            <SettingsField label="API Hash"><input type="password" autoComplete="new-password" value={telegramApiHash} onChange={event => setTelegramApiHash(event.target.value)} placeholder={t('settings.remaining.copy.335')} className="w-full px-3 py-2" /></SettingsField>
+                            {telegramBotConfig?.pinConfigured && <p className="md:col-span-2 rounded-[7px] border border-border bg-background px-3 py-2.5 text-[13px] text-muted-foreground">{t('settings.remaining.copy.031')}</p>}
+                            {!telegramBotConfig?.pinConfigured && <SettingsField label={t('settings.remaining.copy.029')} className="md:col-span-2"><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={telegramPin} onChange={event => setTelegramPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('settings.remaining.shared.pinInitialVerification')} className="w-full px-3 py-2" /><p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.033')}</p></SettingsField>}
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2">{telegramBotConfig?.configured && <Button variant="ghost" onClick={handleCancelTelegramBotEdit} disabled={isSavingTelegramBot}>{t('settings.remaining.copy.034')}</Button>}<Button variant="outline" onClick={handleTestTelegramBot} disabled={isSavingTelegramBot || !telegramBotToken || !telegramApiId || !telegramApiHash}>{t('settings.botConnection.probe')}</Button><Button onClick={handleSaveTelegramBot} disabled={isSavingTelegramBot || !telegramBotToken || !telegramApiId || !telegramApiHash}>{isSavingTelegramBot ? t('settings.remaining.copy.337') : t('settings.remaining.copy.338')}</Button></div>
+                    </SettingsFormLayout>}
+
+                    {showTelegramPinForm && telegramBotConfig?.configured && <div className="rounded-[10px] border border-border bg-muted/20 p-4 space-y-4">
                         <div>
-                            <h4 className="text-sm font-semibold">{telegramBotConfig.pinConfigured ? t('settings.remaining.copy.339') : t('settings.remaining.copy.340')}</h4>
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">{telegramBotConfig.pinConfigured ? t('settings.remaining.copy.341') : t('settings.remaining.copy.342')}</p>
+                            <h4 className="text-[13px] font-semibold">{telegramBotConfig.pinConfigured ? t('settings.remaining.copy.339') : t('settings.remaining.copy.340')}</h4>
+                            <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{telegramBotConfig.pinConfigured ? t('settings.remaining.copy.341') : t('settings.remaining.copy.342')}</p>
                         </div>
                         {telegramBotConfig.pinConfigured && <div className="space-y-2">
-                            <label className="text-sm font-medium">{t('settings.remaining.copy.037')}</label>
-                            <div className="grid grid-cols-2 gap-2">
+                            <label className="text-[13px] font-medium">{t('settings.remaining.copy.037')}</label>
+                            <div className="settings-choice-actions">
                                 <Button type="button" variant={telegramPinVerificationMethod === 'current_pin' ? 'default' : 'outline'} onClick={() => { setTelegramPinVerificationMethod('current_pin'); setTelegramPinVerificationSecret(''); }}>{t('settings.remaining.copy.038')}</Button>
                                 <Button type="button" variant={telegramPinVerificationMethod === 'web_password' ? 'default' : 'outline'} onClick={() => { setTelegramPinVerificationMethod('web_password'); setTelegramPinVerificationSecret(''); }}>{t('settings.remaining.copy.039')}</Button>
                             </div>
                         </div>}
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            <div className="space-y-2 md:col-span-2"><label className="text-sm font-medium">{telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? t('settings.remaining.copy.038') : t('settings.remaining.copy.039')}</label><input type="password" inputMode={telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? 'numeric' : undefined} maxLength={telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? 4 : 256} autoComplete="current-password" value={telegramPinVerificationSecret} onChange={event => setTelegramPinVerificationSecret(telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? event.target.value.replace(/\D/g, '').slice(0, 4) : event.target.value)} placeholder={telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? t('settings.remaining.shared.enterCurrentPin') : t('settings.remaining.shared.enterWebPassword')} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div>
-                            <div className="space-y-2"><label className="text-sm font-medium">{t('settings.remaining.copy.040')}</label><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={newTelegramPin} onChange={event => setNewTelegramPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('settings.remaining.copy.345')} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div>
-                            <div className="space-y-2"><label className="text-sm font-medium">{t('settings.remaining.copy.041')}</label><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={confirmNewTelegramPin} onChange={event => setConfirmNewTelegramPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('settings.remaining.copy.346')} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20" /></div>
+                        <div className="settings-form-grid">
+                            <SettingsField label={telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? t('settings.remaining.copy.038') : t('settings.remaining.copy.039')} className="md:col-span-2"><input type="password" inputMode={telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? 'numeric' : undefined} maxLength={telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? 4 : 256} autoComplete="current-password" value={telegramPinVerificationSecret} onChange={event => setTelegramPinVerificationSecret(telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? event.target.value.replace(/\D/g, '').slice(0, 4) : event.target.value)} placeholder={telegramBotConfig.pinConfigured && telegramPinVerificationMethod === 'current_pin' ? t('settings.remaining.shared.enterCurrentPin') : t('settings.remaining.shared.enterWebPassword')} className="w-full px-3 py-2" /></SettingsField>
+                            <SettingsField label={t('settings.remaining.copy.040')}><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={newTelegramPin} onChange={event => setNewTelegramPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('settings.remaining.copy.345')} className="w-full px-3 py-2" /></SettingsField>
+                            <SettingsField label={t('settings.remaining.copy.041')}><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={confirmNewTelegramPin} onChange={event => setConfirmNewTelegramPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder={t('settings.remaining.copy.346')} className="w-full px-3 py-2" /></SettingsField>
                         </div>
                         <div className="flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={handleCancelTelegramPinChange} disabled={isChangingTelegramPin}>{t('settings.remaining.copy.034')}</Button><Button onClick={handleChangeTelegramPin} disabled={isChangingTelegramPin || !telegramPinVerificationSecret || newTelegramPin.length !== 4 || confirmNewTelegramPin.length !== 4}>{isChangingTelegramPin ? t('settings.remaining.copy.337') : (telegramBotConfig.pinConfigured ? t('settings.remaining.copy.348') : t('settings.remaining.copy.349'))}</Button></div>
                     </div>}
@@ -1462,24 +1522,24 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
             </SettingsSection>
 
             <SettingsSection title={t('settings.telegram.permissions')}>
-                <div className="p-4 bg-muted/20 border-b border-border/50">
+                <div className="settings-provider-block">
                     <div className="flex items-start justify-between gap-4">
                         <div className="flex min-w-0 items-start gap-3">
-                            <div className="p-2 rounded-lg bg-muted text-muted-foreground">
+                            <div className="settings-icon">
                                 <ShieldCheck className="h-4 w-4" />
                             </div>
                             <div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-medium">{t('settings.remaining.copy.043')}</span>
+                                    <span className="text-[13px] font-medium">{t('settings.remaining.copy.043')}</span>
                                     {config?.telegramAllowedUserIdsFromEnv ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[11px] font-semibold">{t('settings.remaining.copy.044')}</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-primary text-[11px] font-semibold">{t('settings.remaining.copy.044')}</span>
                                     ) : config?.telegramAllowedUserIds?.length ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-green-600 dark:text-green-400 text-[11px] font-semibold">{t('settings.remaining.copy.320')}{config.telegramAllowedUserIds.length} {t('settings.remaining.shared.countSuffix')}</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-green-500/10 settings-text-success text-[11px] font-semibold">{t('settings.remaining.copy.320')}{config.telegramAllowedUserIds.length} {t('settings.remaining.shared.countSuffix')}</span>
                                     ) : (
-                                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-semibold">{t('settings.remaining.copy.045')}</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 settings-text-warning text-[11px] font-semibold">{t('settings.remaining.copy.045')}</span>
                                     )}
                                 </div>
-                                <p className="text-xs text-muted-foreground mt-1">
+                                <p className="text-[12px] text-muted-foreground mt-1">
                                     {t('settings.remaining.shared.allowlistDescription')}</p>
                             </div>
                         </div>
@@ -1487,15 +1547,16 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                 </div>
                 <div className="p-4 space-y-3">
                     <textarea
+                        aria-label={t('settings.remaining.copy.043')}
                         value={telegramAllowedUserIdsInput}
                         onChange={(event) => setTelegramAllowedUserIdsInput(event.target.value)}
                         disabled={!!config?.telegramAllowedUserIdsFromEnv || isSavingTelegramAllowedUsers}
                         rows={3}
                         placeholder={t('settings.remaining.copy.350')}
-                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:bg-muted/40 disabled:text-muted-foreground"
+                        className="w-full px-3 py-2 disabled:bg-muted/40 disabled:text-muted-foreground"
                     />
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-[12px] text-muted-foreground">
                             {t('settings.remaining.shared.getUserIdPrefix')}<code className="px-1 py-0.5 rounded bg-muted">@userinfobot</code> {t('settings.remaining.shared.getUserIdSuffix')}{config?.telegramAllowedUserIdsFromEnv ? t('settings.remaining.copy.351') : ''}
                         </p>
                         <Button
@@ -1510,30 +1571,30 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
             </SettingsSection>
 
             <SettingsSection title={t('settings.telegram.downloadSettings')}>
-                <div className="p-4 bg-muted/20 border-b border-border/50">
+                <div className="settings-provider-block">
                     <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 items-start gap-3">
-                            <div className="mt-0.5 shrink-0 p-2 rounded-lg bg-muted text-muted-foreground">
+                            <div className="mt-0.5 shrink-0 p-2 rounded-[7px] bg-muted text-muted-foreground">
                                 <Cloud className="h-4 w-4" />
                             </div>
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-medium">{t('settings.remaining.copy.046')}</span>
+                                    <span className="text-[13px] font-medium">{t('settings.remaining.copy.046')}</span>
                                     {!showTelegramUserDownload ? (
                                         <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[11px] font-medium">{t('settings.remaining.copy.047')}</span>
                                     ) : config?.telegramUserSessionReady ? (
-                                        <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-green-600 dark:text-green-400 text-[11px] font-semibold">{t('settings.remaining.copy.048')}</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-green-500/10 settings-text-success text-[11px] font-semibold">{t('settings.remaining.copy.048')}</span>
                                     ) : (
-                                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-semibold">{t('settings.remaining.copy.049')}</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 settings-text-warning text-[11px] font-semibold">{t('settings.remaining.copy.049')}</span>
                                     )}
                                 </div>
-                                <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">{t('settings.remaining.copy.050')}</p>
+                                <p className="mt-1 max-w-xl text-[12px] leading-5 text-muted-foreground">{t('settings.remaining.copy.050')}</p>
                             </div>
                         </div>
                         <Button
                             size="sm"
                             variant={showTelegramUserDownload ? "default" : "outline"}
-                            className="w-full whitespace-normal sm:w-auto sm:shrink-0 sm:whitespace-nowrap"
+                            className="w-full whitespace-normal sm:w-auto sm:shrink-0 sm:whitespace-normal"
                             onClick={async () => {
                                 if (isSaving) return;
                                 const nextEnabled = !showTelegramUserDownload;
@@ -1561,21 +1622,28 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                     requestConfirmation={requestConfirmation}
                 />
             </SettingsSection>
-            </>}
+            </div>}
 
-            {activeSection === 'storage' && <>
-            {/* Storage Configuration Section (New) */}
+            {activeSection === 'storage' && <div className="settings-group settings-group--storage">
+            <SettingsSection title={t('uiAudit.current')} className="settings-current-storage">
+                <div className="settings-current-storage__body">
+                    <strong data-current-storage>{config ? config.provider === 'local' ? t('settings.remaining.copy.358') : `${getProviderMetadata(config.provider).label} / ${config.accounts.find(a => a.id === config.activeAccountId)?.name || '—'}` : t('common.status.loading')}</strong>
+                    <p className="settings-help">{t('uiAudit.storageNote')}</p>
+                    {config?.accounts.filter(a => a.id === config.activeAccountId).map(account => <StorageProbeStatus key={account.id} account={account} busy={probingAccountId === account.id} feedback={probeFeedback?.accountId === account.id ? probeFeedback : null} onProbe={() => void handleProbeAccount(account)} />)}
+                    {config?.provider === 'local' && <LocalStorageLocation />}
+                </div>
+            </SettingsSection>
             {/* i18n source: 存储源设置 */}
             <SettingsSection title={t('settings.storageSources.title')}>
-                <div className="mx-4 mt-3 mb-4 p-3 rounded-lg border border-blue-500/20 bg-blue-500/5 flex items-center gap-3">
-                    <BookOpen className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                    <p className="text-xs text-muted-foreground">
+                <div className="settings-notice settings-status--info mx-4 my-4 flex items-center gap-3">
+                    <BookOpen className="h-4 w-4 text-primary flex-shrink-0" />
+                    <p className="text-[12px] text-muted-foreground">
                         {t('settings.remaining.shared.guidePrefix')}{" "}
                         <a
                             href="https://hicocos.github.io/tg-vault/storage.html"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-600 font-medium hover:underline"
+                            className="inline-flex items-center gap-1 text-primary font-medium hover:underline"
                         >
                             {t('settings.remaining.shared.guideLink')}<ExternalLink className="h-3 w-3" />
                         </a>
@@ -1590,7 +1658,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                         value={config?.provider === 'local' ? t('settings.remaining.copy.360') : ""}
                         action={
                             config?.provider === 'local' ? (
-                                <CheckCircle className="h-5 w-5 text-green-500" />
+                                <CheckCircle className="h-5 w-5 settings-text-success" />
                             ) : (
                                 <Button
                                     size="sm" variant="outline"
@@ -1598,22 +1666,22 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                     onClick={() => handleSwitchProvider('local')}
                                     disabled={isSaving || !config}
                                 >
-                                    {t('settings.remaining.shared.switchUse')}</Button>
+                                    {t('uiAudit.switchTo')}</Button>
                             )
                         }
                     />
-                    <LocalStorageLocation />
+                    {config?.provider !== 'local' && <LocalStorageLocation />}
                 </div>
 
-                <div className="p-4 bg-muted/20 border-b border-border/50">
+                <details className="settings-provider-group" open={config?.accounts.some(a => a.type === 'google_drive') || undefined}><summary>{t(config?.accounts.some(a => a.type === 'google_drive') ? 'uiAudit.configured' : 'uiAudit.other')} · Google Drive</summary><div className="settings-provider-block">
                     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="p-2 rounded-lg bg-muted text-muted-foreground">
+                            <div className="settings-icon">
                                 <Database className="h-4 w-4" />
                             </div>
                             <div>
-                                <span className="text-sm font-medium">{t('settings.remaining.copy.051')}</span>
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.052')}</p>
+                                <span className="text-[13px] font-medium">{t('settings.remaining.copy.051')}</span>
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.052')}</p>
                             </div>
                         </div>
                         <Button
@@ -1630,7 +1698,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             <div
                                 key={account.id}
                                 className={cn(
-                                    "flex flex-col items-stretch gap-3 p-3 rounded-lg border transition-all sm:flex-row sm:items-center sm:justify-between",
+                                    "settings-storage-account",
                                     account.is_active
                                         ? "bg-primary/5 border-primary/20 ring-1 ring-primary/10"
                                         : "bg-background border-border hover:border-border/80"
@@ -1642,31 +1710,32 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                         account.is_active ? "bg-primary animate-pulse" : "bg-muted-foreground/30"
                                     )} />
                                     <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-medium">{account.name || t('settings.remaining.copy.363')}</p>
-                                        <p className="break-all text-[10px] text-muted-foreground font-mono opacity-60">{account.id}</p>
+                                        <p className="text-[13px] font-medium">{account.name || t('settings.remaining.copy.363')}</p>
+                                        <details className="settings-account-details"><summary>{t('uiAudit.details')}</summary><code>{account.id}</code></details>
                                         <StorageProbeStatus account={account} busy={probingAccountId === account.id} feedback={probeFeedback?.accountId === account.id ? probeFeedback : null} onProbe={() => void handleProbeAccount(account)} />
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap items-center justify-end gap-2 self-stretch sm:self-auto">
                                     {account.is_active ? (
-                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 text-green-600 dark:text-green-400">
+                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 settings-text-success">
                                             <CheckCircle className="h-3.5 w-3.5" />
-                                            <span className="text-xs font-semibold">{t('settings.remaining.copy.110')}</span>
+                                            <span className="text-[12px] font-semibold">{t('settings.remaining.copy.110')}</span>
                                         </div>
                                     ) : (
                                         <>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 text-xs hover:bg-primary/10 hover:text-primary"
+                                                className="text-[12px] hover:bg-primary/10 hover:text-primary"
                                                 onClick={() => handleSwitchProvider('google_drive', account.id)}
                                                 disabled={isSaving}
                                             >
-                                                {t('settings.remaining.shared.switchAccount')}</Button>
+                                                {t('uiAudit.switchTo')}</Button>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                className="w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                aria-label={t('management.telegramAccounts.account.delete')}
                                                 onClick={() => handleDeleteAccount(account.id, account.name)}
                                                 disabled={isSaving}
                                             >
@@ -1678,8 +1747,8 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             </div>
                         ))}
                         {config?.accounts.filter(a => a.type === 'google_drive').length === 0 && !showGDForm && (
-                            <div className="text-center py-6 border border-dashed rounded-lg border-border/50">
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.054')}</p>
+                            <div className="text-center py-6 border border-dashed rounded-[7px] border-border/50">
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.054')}</p>
                                 <Button
                                     variant="link"
                                     size="sm"
@@ -1700,74 +1769,70 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             exit={{ height: 0, opacity: 0 }}
                             className="bg-muted/30 border-t border-border/50"
                         >
-                            <div className="p-6 space-y-6">
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                            <SettingsFormLayout guide={<div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-[13px] font-semibold text-primary">
                                         <Database className="h-4 w-4" />
                                         <span>{t('settings.remaining.copy.055')}</span>
                                     </div>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
-                                        {t('settings.remaining.shared.goTo')}<a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">Google Cloud Console</a> {t('settings.remaining.copy.056')}<b>{t('settings.remaining.copy.057')}</b>{t('settings.remaining.shared.googleAppTypePrefix')}<code>{t('settings.remaining.copy.058')}</code>{t('settings.remaining.copy.059')}<b>{t('settings.remaining.copy.060')}</b>：
+                                    <p className="text-[12px] text-muted-foreground leading-relaxed">
+                                        {t('settings.remaining.shared.goTo')}<a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-primary hover:underline">Google Cloud Console</a> {t('settings.remaining.copy.056')}<b>{t('settings.remaining.copy.057')}</b>{t('settings.remaining.shared.googleAppTypePrefix')}<code>{t('settings.remaining.copy.058')}</code>{t('settings.remaining.copy.059')}<b>{t('settings.remaining.copy.060')}</b>：
                                         <code className="block mt-1 p-1 bg-muted rounded text-primary">{config?.googleDriveRedirectUri || `${window.location.origin}/api/storage/google-drive/callback`}</code>
                                     </p>
-                                </div>
+                                </div>}>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.061')}</label>
+
+                                <div className="settings-form-grid">
+                                    <SettingsField label={t('settings.remaining.copy.061')} className="md:col-span-2">
                                         <input
                                             type="text"
                                             value={gdAccountName}
                                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setGdAccountName(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder={t('settings.remaining.copy.364')}
                                         />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.062')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.062')} className="md:col-span-2">
                                         <input
                                             type="text"
                                             value={gdClientId}
                                             onChange={e => setGdClientId(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder="Google Cloud Client ID"
                                         />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.063')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.063')} className="md:col-span-2">
                                         <input
                                             type="password"
                                             value={gdClientSecret}
                                             onChange={e => setGdClientSecret(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder="Google Cloud Client Secret"
                                         />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.064')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.064')} className="md:col-span-2">
                                         <input
                                             type="text"
                                             value={gdSharedDriveId}
                                             onChange={e => setGdSharedDriveId(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder={t('settings.remaining.copy.365')}
                                         />
-                                        <p className="text-xs text-muted-foreground leading-relaxed">
+                                        <p className="text-[12px] text-muted-foreground leading-relaxed">
                                             {t('settings.remaining.shared.sharedDriveHintPrefix')}<code>folders/</code> {t('settings.remaining.shared.sharedDriveHintSuffix')}</p>
-                                    </div>
+                                    </SettingsField>
                                 </div>
 
-                                <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 space-y-3">
-                                    <div className="flex items-center justify-between">
+                                <div className="settings-save-panel">
+                                    <div className="settings-action-row">
                                         <div className="space-y-0.5">
-                                            <h4 className="text-sm font-medium text-blue-600 dark:text-blue-400">{t('settings.remaining.copy.065')}</h4>
-                                            <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.066')}</p>
+                                            <h4 className="text-[13px] font-medium text-primary">{t('settings.remaining.copy.065')}</h4>
+                                            <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.066')}</p>
                                         </div>
                                         <Button
                                             size="sm"
                                             onClick={handleSaveGDConfig}
                                             disabled={isSaving || !gdClientId || !gdClientSecret}
-                                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                                            className="settings-action"
                                         >
                                             {isSaving ? t('settings.remaining.copy.366') : t('settings.remaining.copy.367')}
                                         </Button>
@@ -1777,20 +1842,20 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                 <div className="flex justify-end pt-2">
                                     <Button variant="ghost" onClick={() => setShowGDForm(false)}>{t('settings.remaining.copy.107')}</Button>
                                 </div>
-                            </div>
+                            </SettingsFormLayout>
                         </motion.div>
                     )}
-                </AnimatePresence>
+                </AnimatePresence></details>
 
-                <div className="p-4 bg-muted/20 border-b border-border/50">
+                <details className="settings-provider-group" open={config?.accounts.some(a => a.type === 'onedrive') || undefined}><summary>{t(config?.accounts.some(a => a.type === 'onedrive') ? 'uiAudit.configured' : 'uiAudit.other')} · OneDrive</summary><div className="settings-provider-block">
                     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="p-2 rounded-lg bg-muted text-muted-foreground">
+                            <div className="settings-icon">
                                 <Cloud className="h-4 w-4" />
                             </div>
                             <div>
-                                <span className="text-sm font-medium">{t('settings.remaining.copy.068')}</span>
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.069')}</p>
+                                <span className="text-[13px] font-medium">{t('settings.remaining.copy.068')}</span>
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.069')}</p>
                             </div>
                         </div>
                         <Button
@@ -1807,7 +1872,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             <div
                                 key={account.id}
                                 className={cn(
-                                    "flex flex-col items-stretch gap-3 p-3 rounded-lg border transition-all sm:flex-row sm:items-center sm:justify-between",
+                                    "settings-storage-account",
                                     account.is_active
                                         ? "bg-primary/5 border-primary/20 ring-1 ring-primary/10"
                                         : "bg-background border-border hover:border-border/80"
@@ -1819,31 +1884,32 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                         account.is_active ? "bg-primary animate-pulse" : "bg-muted-foreground/30"
                                     )} />
                                     <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-medium">{account.name || t('settings.remaining.copy.363')}</p>
-                                        <p className="break-all text-[10px] text-muted-foreground font-mono opacity-60">{account.id}</p>
+                                        <p className="text-[13px] font-medium">{account.name || t('settings.remaining.copy.363')}</p>
+                                        <details className="settings-account-details"><summary>{t('uiAudit.details')}</summary><code>{account.id}</code></details>
                                         <StorageProbeStatus account={account} busy={probingAccountId === account.id} feedback={probeFeedback?.accountId === account.id ? probeFeedback : null} onProbe={() => void handleProbeAccount(account)} />
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap items-center justify-end gap-2 self-stretch sm:self-auto">
                                     {account.is_active ? (
-                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 text-green-600 dark:text-green-400">
+                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 settings-text-success">
                                             <CheckCircle className="h-3.5 w-3.5" />
-                                            <span className="text-xs font-semibold">{t('settings.remaining.copy.110')}</span>
+                                            <span className="text-[12px] font-semibold">{t('settings.remaining.copy.110')}</span>
                                         </div>
                                     ) : (
                                         <>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 text-xs hover:bg-primary/10 hover:text-primary"
+                                                className="text-[12px] hover:bg-primary/10 hover:text-primary"
                                                 onClick={() => handleSwitchProvider('onedrive', account.id)}
                                                 disabled={isSaving}
                                             >
-                                                {t('settings.remaining.shared.switchAccount')}</Button>
+                                                {t('uiAudit.switchTo')}</Button>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                className="w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                aria-label={t('management.telegramAccounts.account.delete')}
                                                 onClick={() => handleDeleteAccount(account.id, account.name)}
                                                 disabled={isSaving}
                                             >
@@ -1855,8 +1921,8 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             </div>
                         ))}
                         {config?.accounts.filter(a => a.type === 'onedrive').length === 0 && !showOneDriveForm && (
-                            <div className="text-center py-6 border border-dashed rounded-lg border-border/50">
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.071')}</p>
+                            <div className="text-center py-6 border border-dashed rounded-[7px] border-border/50">
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.071')}</p>
                                 <Button
                                     variant="link"
                                     size="sm"
@@ -1877,75 +1943,71 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             exit={{ height: 0, opacity: 0 }}
                             className="bg-muted/30 border-t border-border/50"
                         >
-                            <div className="p-6 space-y-6">
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                            <SettingsFormLayout guide={<div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-[13px] font-semibold text-primary">
                                         <Database className="h-4 w-4" />
                                         <span>{t('settings.remaining.copy.072')}</span>
                                     </div>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
-                                        {t('settings.remaining.shared.goTo')}<a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{t('settings.remaining.copy.073')}</a> {t('settings.remaining.shared.entraGuideMiddle')}<b>{t('settings.remaining.copy.074')}</b> {t('settings.remaining.copy.075')}<code>Web</code>{t('settings.remaining.shared.andEnter')}<code className="block mt-1 p-1 bg-muted rounded text-primary">{config?.redirectUri || `${import.meta.env.VITE_API_URL || window.location.origin}/api/storage/onedrive/callback`}</code>
+                                    <p className="text-[12px] text-muted-foreground leading-relaxed">
+                                        {t('settings.remaining.shared.goTo')}<a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer" className="text-primary hover:underline">{t('settings.remaining.copy.073')}</a> {t('settings.remaining.shared.entraGuideMiddle')}<b>{t('settings.remaining.copy.074')}</b> {t('settings.remaining.copy.075')}<code>Web</code>{t('settings.remaining.shared.andEnter')}<code className="block mt-1 p-1 bg-muted rounded text-primary">{config?.redirectUri || `${import.meta.env.VITE_API_URL || window.location.origin}/api/storage/onedrive/callback`}</code>
                                     </p>
-                                    <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                                    <p className="text-[12px] settings-text-warning leading-relaxed rounded-[7px] border border-amber-500/20 bg-amber-500/5 p-3">
                                         {t('settings.remaining.shared.azureSecretPrefix')}<b>{t('settings.remaining.copy.076')}</b>{t('settings.remaining.copy.077')}<code>AADSTS7000215 Invalid client secret</code>。
                                     </p>
-                                </div>
+                                </div>}>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.078')}</label>
+
+                                <div className="settings-form-grid">
+                                    <SettingsField label={t('settings.remaining.copy.078')}>
                                         <input
                                             type="text"
                                             value={odClientId}
                                             onChange={e => setOdClientId(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder="Azure App Client ID"
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.079')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.079')}>
                                         <input
                                             type="text"
                                             value={odTenantId}
                                             onChange={e => setOdTenantId(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder={t('settings.remaining.copy.371')}
                                         />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.080')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.080')} className="md:col-span-2">
                                         <input
                                             type="text"
                                             value={odAccountName}
                                             onChange={e => setOdAccountName(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder={t('settings.remaining.copy.372')}
                                         />
-                                    </div>
+                                    </SettingsField>
                                 </div>
 
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">{t('settings.remaining.copy.081')}</label>
+                                <SettingsField label={t('settings.remaining.copy.081')}>
                                     <input
                                         type="password"
                                         value={odClientSecret}
                                         onChange={e => setOdClientSecret(e.target.value)}
-                                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                        className="w-full px-3 py-2"
                                         placeholder={t('settings.remaining.copy.373')}
                                     />
-                                </div>
+                                </SettingsField>
 
-                                <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 space-y-3">
-                                    <div className="flex items-center justify-between">
+                                <div className="settings-save-panel">
+                                    <div className="settings-action-row">
                                         <div className="space-y-0.5">
-                                            <h4 className="text-sm font-medium text-blue-600 dark:text-blue-400">{t('settings.remaining.copy.082')}</h4>
-                                            <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.083')}</p>
+                                            <h4 className="text-[13px] font-medium text-primary">{t('settings.remaining.copy.082')}</h4>
+                                            <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.083')}</p>
                                         </div>
                                         <Button
                                             size="sm"
                                             onClick={handleSaveOneDriveConfig}
                                             disabled={isSaving || !odClientId}
-                                            className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20"
+                                            className="settings-action"
                                         >
                                             {isSaving ? t('settings.remaining.copy.366') : t('settings.remaining.copy.367')}
                                         </Button>
@@ -1955,23 +2017,24 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                 <div className="flex justify-end pt-2">
                                     <Button variant="ghost" onClick={() => setShowOneDriveForm(false)}>{t('settings.remaining.copy.107')}</Button>
                                 </div>
-                            </div>
+                            </SettingsFormLayout>
                         </motion.div>
                     )}
-                </AnimatePresence>
+                </AnimatePresence></details>
             </SettingsSection>
 
             {/* Aliyun OSS Configuration Section */}
             <SettingsSection title={t('settings.storageSources.aliyunTitle')}>
-                <div className="p-4 bg-muted/20 border-b border-border/50">
+
+<details className="settings-provider-group" open={config?.accounts.some(a => a.type === 'aliyun_oss') || undefined}><summary>{t(config?.accounts.some(a => a.type === 'aliyun_oss') ? 'uiAudit.configured' : 'uiAudit.other')} · OSS</summary><div className="settings-provider-block">
                     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="p-2 rounded-lg bg-muted text-muted-foreground">
+                            <div className="settings-icon">
                                 <Database className="h-4 w-4" />
                             </div>
                             <div>
-                                <span className="text-sm font-medium">{t('settings.remaining.copy.085')}</span>
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.086')}</p>
+                                <span className="text-[13px] font-medium">{t('settings.remaining.copy.085')}</span>
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.086')}</p>
                             </div>
                         </div>
                         <Button
@@ -1988,7 +2051,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             <div
                                 key={account.id}
                                 className={cn(
-                                    "flex flex-col items-stretch gap-3 p-3 rounded-lg border transition-all sm:flex-row sm:items-center sm:justify-between",
+                                    "settings-storage-account",
                                     account.is_active
                                         ? "bg-primary/5 border-primary/20 ring-1 ring-primary/10"
                                         : "bg-background border-border hover:border-border/80"
@@ -2000,31 +2063,32 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                         account.is_active ? "bg-primary animate-pulse" : "bg-muted-foreground/30"
                                     )} />
                                     <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-medium">{account.name || t('settings.remaining.copy.363')}</p>
-                                        <p className="break-all text-[10px] text-muted-foreground font-mono opacity-60">{account.id}</p>
+                                        <p className="text-[13px] font-medium">{account.name || t('settings.remaining.copy.363')}</p>
+                                        <details className="settings-account-details"><summary>{t('uiAudit.details')}</summary><code>{account.id}</code></details>
                                         <StorageProbeStatus account={account} busy={probingAccountId === account.id} feedback={probeFeedback?.accountId === account.id ? probeFeedback : null} onProbe={() => void handleProbeAccount(account)} />
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap items-center justify-end gap-2 self-stretch sm:self-auto">
                                     {account.is_active ? (
-                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 text-green-600 dark:text-green-400">
+                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 settings-text-success">
                                             <CheckCircle className="h-3.5 w-3.5" />
-                                            <span className="text-xs font-semibold">{t('settings.remaining.copy.110')}</span>
+                                            <span className="text-[12px] font-semibold">{t('settings.remaining.copy.110')}</span>
                                         </div>
                                     ) : (
                                         <>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 text-xs hover:bg-primary/10 hover:text-primary"
+                                                className="text-[12px] hover:bg-primary/10 hover:text-primary"
                                                 onClick={() => handleSwitchProvider('aliyun_oss', account.id)}
                                                 disabled={isSaving}
                                             >
-                                                {t('settings.remaining.shared.switchAccount')}</Button>
+                                                {t('uiAudit.switchTo')}</Button>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                className="w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                aria-label={t('management.telegramAccounts.account.delete')}
                                                 onClick={() => handleDeleteAccount(account.id, account.name)}
                                                 disabled={isSaving}
                                             >
@@ -2036,8 +2100,8 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             </div>
                         ))}
                         {config?.accounts.filter(a => a.type === 'aliyun_oss').length === 0 && !showOSSForm && (
-                            <div className="text-center py-6 border border-dashed rounded-lg border-border/50">
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.088')}</p>
+                            <div className="text-center py-6 border border-dashed rounded-[7px] border-border/50">
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.088')}</p>
                                 <Button
                                     variant="link"
                                     size="sm"
@@ -2058,72 +2122,67 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             exit={{ height: 0, opacity: 0 }}
                             className="bg-muted/30 border-t border-border/50"
                         >
-                            <div className="p-6 space-y-6">
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                            <SettingsFormLayout guide={<div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-[13px] font-semibold text-primary">
                                         <Database className="h-4 w-4" />
                                         <span>{t('settings.remaining.copy.089')}</span>
                                     </div>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                    <p className="text-[12px] text-muted-foreground leading-relaxed">
                                         {t('settings.remaining.shared.ossCredentialsHint')}</p>
-                                </div>
+                                </div>}>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.101')}</label>
+
+                                <div className="settings-form-grid">
+                                    <SettingsField label={t('settings.remaining.copy.101')} className="md:col-span-2">
                                         <input
                                             type="text"
                                             value={ossAccountName}
                                             onChange={e => setOssAccountName(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder={t('settings.remaining.copy.379')}
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.103')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.103')}>
                                         <input
                                             type="text"
                                             value={ossRegion}
                                             onChange={e => setOssRegion(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder="oss-cn-hangzhou"
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.104')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.104')}>
                                         <input
                                             type="text"
                                             value={ossBucket}
                                             onChange={e => setOssBucket(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder="my-oss-bucket"
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">AccessKey ID</label>
+                                    </SettingsField>
+                                    <SettingsField label="AccessKey ID">
                                         <input
                                             type="text"
                                             value={ossAccessKeyId}
                                             onChange={e => setOssAccessKeyId(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">AccessKey Secret</label>
+                                    </SettingsField>
+                                    <SettingsField label="AccessKey Secret">
                                         <input
                                             type="password"
                                             value={ossAccessKeySecret}
                                             onChange={e => setOssAccessKeySecret(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                         />
-                                    </div>
+                                    </SettingsField>
                                 </div>
 
-                                <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
-                                    <div className="flex items-center justify-between">
+                                <div className="settings-save-panel">
+                                    <div className="settings-action-row">
                                         <div className="space-y-0.5">
-                                            <h4 className="text-sm font-medium text-primary">{t('settings.remaining.copy.105')}</h4>
-                                            <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.094')}</p>
+                                            <h4 className="text-[13px] font-medium text-primary">{t('settings.remaining.copy.105')}</h4>
+                                            <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.094')}</p>
                                         </div>
                                         <Button
                                             size="sm"
@@ -2138,23 +2197,24 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                 <div className="flex justify-end pt-2">
                                     <Button variant="ghost" onClick={() => setShowOSSForm(false)}>{t('settings.remaining.copy.107')}</Button>
                                 </div>
-                            </div>
+                            </SettingsFormLayout>
                         </motion.div>
                     )}
-                </AnimatePresence>
+                </AnimatePresence></details>
             </SettingsSection>
 
             {/* S3 Configuration Section */}
             <SettingsSection title={t('settings.storageSources.s3Title')}>
-                <div className="p-4 bg-muted/20 border-b border-border/50">
+
+<details className="settings-provider-group" open={config?.accounts.some(a => a.type === 's3') || undefined}><summary>{t(config?.accounts.some(a => a.type === 's3') ? 'uiAudit.configured' : 'uiAudit.other')} · S3</summary><div className="settings-provider-block">
                     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="p-2 rounded-lg bg-muted text-muted-foreground">
+                            <div className="settings-icon">
                                 <Database className="h-4 w-4" />
                             </div>
                             <div>
-                                <span className="text-sm font-medium">{t('settings.remaining.copy.096')}</span>
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.097')}</p>
+                                <span className="text-[13px] font-medium">{t('settings.remaining.copy.096')}</span>
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.097')}</p>
                             </div>
                         </div>
                         <Button
@@ -2171,7 +2231,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             <div
                                 key={account.id}
                                 className={cn(
-                                    "flex flex-col items-stretch gap-3 p-3 rounded-lg border transition-all sm:flex-row sm:items-center sm:justify-between",
+                                    "settings-storage-account",
                                     account.is_active
                                         ? "bg-primary/5 border-primary/20 ring-1 ring-primary/10"
                                         : "bg-background border-border hover:border-border/80"
@@ -2183,31 +2243,32 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                         account.is_active ? "bg-primary animate-pulse" : "bg-muted-foreground/30"
                                     )} />
                                     <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-medium">{account.name || t('settings.remaining.copy.363')}</p>
-                                        <p className="break-all text-[10px] text-muted-foreground font-mono opacity-60">{account.id}</p>
+                                        <p className="text-[13px] font-medium">{account.name || t('settings.remaining.copy.363')}</p>
+                                        <details className="settings-account-details"><summary>{t('uiAudit.details')}</summary><code>{account.id}</code></details>
                                         <StorageProbeStatus account={account} busy={probingAccountId === account.id} feedback={probeFeedback?.accountId === account.id ? probeFeedback : null} onProbe={() => void handleProbeAccount(account)} />
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap items-center justify-end gap-2 self-stretch sm:self-auto">
                                     {account.is_active ? (
-                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 text-green-600 dark:text-green-400">
+                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 settings-text-success">
                                             <CheckCircle className="h-3.5 w-3.5" />
-                                            <span className="text-xs font-semibold">{t('settings.remaining.copy.110')}</span>
+                                            <span className="text-[12px] font-semibold">{t('settings.remaining.copy.110')}</span>
                                         </div>
                                     ) : (
                                         <>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 text-xs hover:bg-primary/10 hover:text-primary"
+                                                className="text-[12px] hover:bg-primary/10 hover:text-primary"
                                                 onClick={() => handleSwitchProvider('s3', account.id)}
                                                 disabled={isSaving}
                                             >
-                                                {t('settings.remaining.shared.switchAccount')}</Button>
+                                                {t('uiAudit.switchTo')}</Button>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                className="w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                aria-label={t('management.telegramAccounts.account.delete')}
                                                 onClick={() => handleDeleteAccount(account.id, account.name)}
                                                 disabled={isSaving}
                                             >
@@ -2219,8 +2280,8 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             </div>
                         ))}
                         {config?.accounts.filter(a => a.type === 's3').length === 0 && !showS3Form && (
-                            <div className="text-center py-6 border border-dashed rounded-lg border-border/50">
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.099')}</p>
+                            <div className="text-center py-6 border border-dashed rounded-[7px] border-border/50">
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.099')}</p>
                                 <Button
                                     variant="link"
                                     size="sm"
@@ -2241,93 +2302,87 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             exit={{ height: 0, opacity: 0 }}
                             className="bg-muted/30 border-t border-border/50"
                         >
-                            <div className="p-6 space-y-6">
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                            <SettingsFormLayout guide={<div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-[13px] font-semibold text-primary">
                                         <Database className="h-4 w-4" />
                                         <span>{t('settings.remaining.copy.100')}</span>
                                     </div>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                    <p className="text-[12px] text-muted-foreground leading-relaxed">
                                         {t('settings.remaining.shared.s3CredentialsHint')}</p>
-                                </div>
+                                </div>}>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.101')}</label>
+
+                                <div className="settings-form-grid">
+                                    <SettingsField label={t('settings.remaining.copy.101')} className="md:col-span-2">
                                         <input
                                             type="text"
                                             value={s3AccountName}
                                             onChange={e => setS3AccountName(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder={t('settings.remaining.copy.385')}
                                         />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.102')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.102')} className="md:col-span-2">
                                         <input
                                             type="text"
                                             value={s3Endpoint}
                                             onChange={e => setS3Endpoint(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder="https://s3.amazonaws.com"
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.103')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.103')}>
                                         <input
                                             type="text"
                                             value={s3Region}
                                             onChange={e => setS3Region(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder="us-east-1"
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.104')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.104')}>
                                         <input
                                             type="text"
                                             value={s3Bucket}
                                             onChange={e => setS3Bucket(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder="my-s3-bucket"
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">AccessKey ID</label>
+                                    </SettingsField>
+                                    <SettingsField label="AccessKey ID">
                                         <input
                                             type="text"
                                             value={s3AccessKeyId}
                                             onChange={e => setS3AccessKeyId(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">AccessKey Secret</label>
+                                    </SettingsField>
+                                    <SettingsField label="AccessKey Secret">
                                         <input
                                             type="password"
                                             value={s3AccessKeySecret}
                                             onChange={e => setS3AccessKeySecret(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                         />
-                                    </div>
+                                    </SettingsField>
                                     <div className="flex items-center gap-2 pt-2 md:col-span-2">
                                         <input
                                             type="checkbox"
                                             id="forcePathStyle"
                                             checked={s3ForcePathStyle}
                                             onChange={e => setS3ForcePathStyle(e.target.checked)}
-                                            className="rounded border-border"
+                                            className="rounded"
                                         />
-                                        <label htmlFor="forcePathStyle" className="text-xs text-muted-foreground">
+                                        <label htmlFor="forcePathStyle" className="text-[12px] text-muted-foreground">
                                             {t('settings.remaining.shared.forcePathStyle')}</label>
                                     </div>
                                 </div>
 
-                                <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
-                                    <div className="flex items-center justify-between">
+                                <div className="settings-save-panel">
+                                    <div className="settings-action-row">
                                         <div className="space-y-0.5">
-                                            <h4 className="text-sm font-medium text-primary">{t('settings.remaining.copy.105')}</h4>
-                                            <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.106')}</p>
+                                            <h4 className="text-[13px] font-medium text-primary">{t('settings.remaining.copy.105')}</h4>
+                                            <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.106')}</p>
                                         </div>
                                         <Button
                                             size="sm"
@@ -2342,23 +2397,24 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                 <div className="flex justify-end pt-2">
                                     <Button variant="ghost" onClick={() => setShowS3Form(false)}>{t('settings.remaining.copy.107')}</Button>
                                 </div>
-                            </div>
+                            </SettingsFormLayout>
                         </motion.div>
                     )}
-                </AnimatePresence>
+                </AnimatePresence></details>
             </SettingsSection>
 
             {/* WebDAV Configuration Section */}
             <SettingsSection title={t('settings.storageSources.webdavTitle')}>
-                <div className="p-4 bg-muted/20 border-b border-border/50">
+
+<details className="settings-provider-group" open={config?.accounts.some(a => a.type === 'webdav') || undefined}><summary>{t(config?.accounts.some(a => a.type === 'webdav') ? 'uiAudit.configured' : 'uiAudit.other')} · WebDAV</summary><div className="settings-provider-block">
                     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="p-2 rounded-lg bg-muted text-muted-foreground">
+                            <div className="settings-icon">
                                 <Network className="h-4 w-4" />
                             </div>
                             <div>
-                                <span className="text-sm font-medium">{t('settings.remaining.copy.108')}</span>
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.109')}</p>
+                                <span className="text-[13px] font-medium">{t('settings.remaining.copy.108')}</span>
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.109')}</p>
                             </div>
                         </div>
                         <Button
@@ -2375,7 +2431,7 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             <div
                                 key={account.id}
                                 className={cn(
-                                    "flex flex-col items-stretch gap-3 p-3 rounded-lg border transition-all sm:flex-row sm:items-center sm:justify-between",
+                                    "settings-storage-account",
                                     account.is_active
                                         ? "bg-primary/5 border-primary/20 ring-1 ring-primary/10"
                                         : "bg-background border-border hover:border-border/80"
@@ -2387,31 +2443,32 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                         account.is_active ? "bg-primary animate-pulse" : "bg-muted-foreground/30"
                                     )} />
                                     <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-medium">{account.name || t('settings.remaining.copy.363')}</p>
-                                        <p className="break-all text-[10px] text-muted-foreground font-mono opacity-60">{account.id}</p>
+                                        <p className="text-[13px] font-medium">{account.name || t('settings.remaining.copy.363')}</p>
+                                        <details className="settings-account-details"><summary>{t('uiAudit.details')}</summary><code>{account.id}</code></details>
                                         <StorageProbeStatus account={account} busy={probingAccountId === account.id} feedback={probeFeedback?.accountId === account.id ? probeFeedback : null} onProbe={() => void handleProbeAccount(account)} />
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap items-center justify-end gap-2 self-stretch sm:self-auto">
                                     {account.is_active ? (
-                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 text-green-600 dark:text-green-400">
+                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10 settings-text-success">
                                             <CheckCircle className="h-3.5 w-3.5" />
-                                            <span className="text-xs font-semibold">{t('settings.remaining.copy.110')}</span>
+                                            <span className="text-[12px] font-semibold">{t('settings.remaining.copy.110')}</span>
                                         </div>
                                     ) : (
                                         <>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 text-xs hover:bg-primary/10 hover:text-primary"
+                                                className="text-[12px] hover:bg-primary/10 hover:text-primary"
                                                 onClick={() => handleSwitchProvider('webdav', account.id)}
                                                 disabled={isSaving}
                                             >
-                                                {t('settings.remaining.shared.switchAccount')}</Button>
+                                                {t('uiAudit.switchTo')}</Button>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                className="w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                aria-label={t('management.telegramAccounts.account.delete')}
                                                 onClick={() => handleDeleteAccount(account.id, account.name)}
                                                 disabled={isSaving}
                                             >
@@ -2423,8 +2480,8 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             </div>
                         ))}
                         {config?.accounts.filter(a => a.type === 'webdav').length === 0 && !showWebDAVForm && (
-                            <div className="text-center py-6 border border-dashed rounded-lg border-border/50">
-                                <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.111')}</p>
+                            <div className="text-center py-6 border border-dashed rounded-[7px] border-border/50">
+                                <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.111')}</p>
                                 <Button
                                     variant="link"
                                     size="sm"
@@ -2445,64 +2502,60 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             exit={{ height: 0, opacity: 0 }}
                             className="bg-muted/30 border-t border-border/50"
                         >
-                            <div className="p-6 space-y-6">
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                            <SettingsFormLayout guide={<div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-[13px] font-semibold text-primary">
                                         <Network className="h-4 w-4" />
                                         <span>{t('settings.remaining.copy.112')}</span>
                                     </div>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                    <p className="text-[12px] text-muted-foreground leading-relaxed">
                                         {t('settings.remaining.shared.webdavCredentialsHint')}</p>
-                                </div>
+                                </div>}>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.101')}</label>
+
+                                <div className="settings-form-grid">
+                                    <SettingsField label={t('settings.remaining.copy.101')} className="md:col-span-2">
                                         <input
                                             type="text"
                                             value={webdavAccountName}
                                             onChange={e => setWebdavAccountName(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder={t('settings.remaining.copy.391')}
                                         />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.114')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.114')} className="md:col-span-2">
                                         <input
                                             type="text"
                                             value={webdavUrl}
                                             onChange={e => setWebdavUrl(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder="https://dav.jianguoyun.com/dav/"
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.115')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.115')}>
                                         <input
                                             type="text"
                                             value={webdavUsername}
                                             onChange={e => setWebdavUsername(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder={t('settings.remaining.copy.392')}
                                         />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium">{t('settings.remaining.copy.116')}</label>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.remaining.copy.116')}>
                                         <input
                                             type="password"
                                             value={webdavPassword}
                                             onChange={e => setWebdavPassword(e.target.value)}
-                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                            className="w-full px-3 py-2"
                                             placeholder={t('settings.remaining.copy.393')}
                                         />
-                                    </div>
+                                    </SettingsField>
                                 </div>
 
-                                <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
-                                    <div className="flex items-center justify-between">
+                                <div className="settings-save-panel">
+                                    <div className="settings-action-row">
                                         <div className="space-y-0.5">
-                                            <h4 className="text-sm font-medium text-primary">{t('settings.remaining.copy.105')}</h4>
-                                            <p className="text-xs text-muted-foreground">{t('settings.remaining.copy.118')}</p>
+                                            <h4 className="text-[13px] font-medium text-primary">{t('settings.remaining.copy.105')}</h4>
+                                            <p className="text-[12px] text-muted-foreground">{t('settings.remaining.copy.118')}</p>
                                         </div>
                                         <Button
                                             size="sm"
@@ -2517,21 +2570,22 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                 <div className="flex justify-end pt-2">
                                     <Button variant="ghost" onClick={() => setShowWebDAVForm(false)}>{t('settings.remaining.copy.107')}</Button>
                                 </div>
-                            </div>
+                            </SettingsFormLayout>
                         </motion.div>
                     )}
-                </AnimatePresence>
+                </AnimatePresence></details>
             </SettingsSection>
 
             {/* OpenList native storage: connection and account switching only. */}
             <SettingsSection sectionId="openlist" title={t('settings.openlist.title')}>
-                <div className="border-b border-border/50 bg-muted/20 p-4">
+
+<details className="settings-provider-group" open={config?.accounts.some(a => a.type === 'openlist') || undefined}><summary>{t(config?.accounts.some(a => a.type === 'openlist') ? 'uiAudit.configured' : 'uiAudit.other')} · OpenList</summary><div className="settings-provider-block">
                     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className="rounded-lg bg-muted p-2 text-muted-foreground"><Server className="h-4 w-4" /></div>
+                            <div className="settings-icon"><Server className="h-4 w-4" /></div>
                             <div className="min-w-0 flex-1">
-                                <span className="ru-copy text-sm font-medium">{t('settings.openlist.accounts')}</span>
-                                <p className="ru-copy text-xs text-muted-foreground">{t('settings.openlist.description')}</p>
+                                <span className="ru-copy text-[13px] font-medium">{t('settings.openlist.accounts')}</span>
+                                <p className="ru-copy text-[12px] text-muted-foreground">{t('settings.openlist.description')}</p>
                             </div>
                         </div>
                         <Button size="sm" variant="outline" onClick={() => setShowOpenListForm(!showOpenListForm)}>
@@ -2540,40 +2594,41 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                     </div>
                     <div className="space-y-2">
                         {config?.accounts.filter(account => account.type === 'openlist').map(account => (
-                            <div key={account.id} className={cn("flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between", account.is_active ? "border-primary/20 bg-primary/5" : "border-border bg-background")}>
+                            <div key={account.id} className={cn("flex flex-col gap-3 rounded-[7px] border p-3 sm:flex-row sm:items-center sm:justify-between", account.is_active ? "border-primary/20 bg-primary/5" : "border-border bg-background")}>
                                 <div className="min-w-0">
-                                    <p className="text-sm font-medium">{account.name || t('settings.openlist.unnamed')}</p>
-                                    <p className="break-all font-mono text-[10px] text-muted-foreground opacity-60">{account.id}</p>
+                                    <p className="text-[13px] font-medium">{account.name || t('settings.openlist.unnamed')}</p>
+                                    <details className="settings-account-details"><summary>{t('uiAudit.details')}</summary><code>{account.id}</code></details>
                                     <StorageProbeStatus account={account} busy={probingAccountId === account.id} feedback={probeFeedback?.accountId === account.id ? probeFeedback : null} onProbe={() => void handleProbeAccount(account)} />
                                 </div>
                                 <div className="flex items-center justify-end gap-2">
-                                    {account.is_active ? <span className="rounded bg-green-500/10 px-2 py-1 text-xs font-semibold text-green-600">{t('settings.openlist.inUse')}</span> : <>
+                                    {account.is_active ? <span className="rounded bg-green-500/10 px-2 py-1 text-[12px] font-semibold settings-text-success">{t('settings.openlist.inUse')}</span> : <>
                                         <Button size="sm" variant="ghost" onClick={() => handleSwitchProvider('openlist', account.id)} disabled={isSaving}>{t('settings.openlist.switchAccount')}</Button>
-                                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => handleDeleteAccount(account.id, account.name)} disabled={isSaving} title={t('settings.openlist.deleteTitle')}><Trash2 className="h-3.5 w-3.5" /></Button>
+                                        <Button size="sm" variant="ghost" className="w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={t('management.telegramAccounts.account.delete')}
+                                                onClick={() => handleDeleteAccount(account.id, account.name)} disabled={isSaving} title={t('settings.openlist.deleteTitle')}><Trash2 className="h-3.5 w-3.5" /></Button>
                                     </>}
                                 </div>
                             </div>
                         ))}
-                        {config?.accounts.filter(account => account.type === 'openlist').length === 0 && !showOpenListForm && <p className="rounded-lg border border-dashed py-6 text-center text-xs text-muted-foreground">{t('settings.openlist.empty')}</p>}
+                        {config?.accounts.filter(account => account.type === 'openlist').length === 0 && !showOpenListForm && <p className="rounded-[7px] border border-dashed py-6 text-center text-[12px] text-muted-foreground">{t('settings.openlist.empty')}</p>}
                     </div>
                 </div>
                 <AnimatePresence>
                     {showOpenListForm && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="border-t border-border/50 bg-muted/30">
-                        <div className="space-y-5 p-6">
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                <div className="space-y-2 md:col-span-2"><label className="ru-copy text-sm font-medium">{t('settings.openlist.accountName')}</label><input value={openlistAccountName} onChange={event => setOpenlistAccountName(event.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" placeholder={t('settings.openlist.accountPlaceholder')} /></div>
-                                <div className="space-y-2 md:col-span-2"><label className="ru-copy text-sm font-medium">{t('settings.openlist.address')}</label><input type="url" value={openlistBaseUrl} onChange={event => setOpenlistBaseUrl(event.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" placeholder="https://openlist.example.com" /></div>
-                                <div className="space-y-2 md:col-span-2"><label className="ru-copy text-sm font-medium">{t('settings.openlist.rootPath')}</label><input value={openlistRootPath} onChange={event => setOpenlistRootPath(event.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" placeholder="/" /><p className="ru-copy text-xs text-muted-foreground">{t('settings.openlist.rootHint')}</p></div>
-                                <div className="space-y-2"><label className="ru-copy text-sm font-medium">{t('settings.openlist.username')}</label><input autoComplete="username" value={openlistUsername} onChange={event => setOpenlistUsername(event.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" /></div>
-                                <div className="space-y-2"><label className="ru-copy text-sm font-medium">{t('settings.openlist.password')}</label><input type="password" autoComplete="new-password" value={openlistPassword} onChange={event => setOpenlistPassword(event.target.value)} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm" /></div>
+                        <div className="settings-inset space-y-5">
+                            <div className="settings-form-grid">
+                                <SettingsField label={t('settings.openlist.accountName')} className="md:col-span-2"><input value={openlistAccountName} onChange={event => setOpenlistAccountName(event.target.value)} className="w-full px-3 py-2" placeholder={t('settings.openlist.accountPlaceholder')} /></SettingsField>
+                                <SettingsField label={t('settings.openlist.address')} className="md:col-span-2"><input type="url" value={openlistBaseUrl} onChange={event => setOpenlistBaseUrl(event.target.value)} className="w-full px-3 py-2" placeholder="https://openlist.example.com" /></SettingsField>
+                                <SettingsField label={t('settings.openlist.rootPath')} className="md:col-span-2"><input value={openlistRootPath} onChange={event => setOpenlistRootPath(event.target.value)} className="w-full px-3 py-2" placeholder="/" /><p className="ru-copy text-[12px] text-muted-foreground">{t('settings.openlist.rootHint')}</p></SettingsField>
+                                <SettingsField label={t('settings.openlist.username')}><input autoComplete="username" value={openlistUsername} onChange={event => setOpenlistUsername(event.target.value)} className="w-full px-3 py-2" /></SettingsField>
+                                <SettingsField label={t('settings.openlist.password')}><input type="password" autoComplete="new-password" value={openlistPassword} onChange={event => setOpenlistPassword(event.target.value)} className="w-full px-3 py-2" /></SettingsField>
                             </div>
                             <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => { setShowOpenListForm(false); setOpenlistPassword(''); }}>{t('settings.openlist.cancel')}</Button><Button onClick={handleSaveOpenListConfig} disabled={isSaving || !openlistBaseUrl || !openlistUsername || !openlistPassword}>{isSaving ? t('settings.openlist.saving') : t('settings.openlist.save')}</Button></div>
                         </div>
                     </motion.div>}
-                </AnimatePresence>
+                </AnimatePresence></details>
             </SettingsSection>
             <SettingsSection title={t("settings.storage.title")}>
-                <div className="p-6 space-y-6">
+                <div className="settings-inset space-y-6">
                     {storageStats ? (
                         <>
                             {/* 服务器存储 */}
@@ -2584,22 +2639,22 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                                             <Server className="h-5 w-5" />
                                         </div>
                                         <div>
-                                            <p className="text-sm font-medium">{t('settings.remaining.copy.120')}</p>
+                                            <p className="text-[13px] font-medium">{t('settings.remaining.copy.120')}</p>
                                             <div className="flex items-baseline gap-1">
                                                 <span className="text-2xl font-bold tracking-tight">{storageStats.server.used}</span>
-                                                <span className="text-sm text-muted-foreground font-medium">/ {storageStats.server.total}</span>
+                                                <span className="text-[13px] text-muted-foreground font-medium">/ {storageStats.server.total}</span>
                                             </div>
                                         </div>
                                     </div>
                                     <div className="flex min-w-0 flex-wrap items-center gap-3">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-sm text-muted-foreground">{t('settings.remaining.copy.121')}</span>
-                                            <span className="text-sm font-medium text-green-600">{storageStats.server.free}</span>
+                                            <span className="text-[13px] text-muted-foreground">{t('settings.remaining.copy.121')}</span>
+                                            <span className="text-[13px] font-medium settings-text-success">{storageStats.server.free}</span>
                                         </div>
                                         <span className={cn(
                                             "text-lg font-semibold",
                                             storageStats.server.usedPercent > 90 ? "text-red-500" :
-                                                storageStats.server.usedPercent > 70 ? "text-yellow-500" : "text-green-500"
+                                                storageStats.server.usedPercent > 70 ? "text-yellow-500" : "settings-text-success"
                                         )}>
                                             {storageStats.server.usedPercent}%
                                         </span>
@@ -2626,14 +2681,14 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                             <div className="space-y-3">
                                 <div className="flex items-center">
                                     <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
+                                        <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center text-primary">
                                             <Cloud className="h-5 w-5" />
                                         </div>
                                         <div>
-                                            <p className="text-sm font-medium">{t('settings.remaining.copy.122')}</p>
+                                            <p className="text-[13px] font-medium">{t('settings.remaining.copy.122')}</p>
                                             <div className="flex items-baseline gap-1">
                                                 <span className="text-2xl font-bold tracking-tight">{storageStats.tgvault.used}</span>
-                                                <span className="text-sm text-muted-foreground font-medium">
+                                                <span className="text-[13px] text-muted-foreground font-medium">
                                                     ({t('files.ui.storage.fileCount', { count: storageStats.tgvault.fileCount })})
                                                 </span>
                                             </div>
@@ -2646,13 +2701,13 @@ export const SettingsPage = ({ storageStats, onSignedOut, onOpenTasksForAccount,
                         <div className="flex items-center justify-center py-8">
                             <div className="text-center text-muted-foreground">
                                 <HardDrive className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                <p className="text-sm">{t('settings.remaining.copy.123')}</p>
+                                <p className="text-[13px]">{t('settings.remaining.copy.123')}</p>
                             </div>
                         </div>
                     )}
                 </div>
             </SettingsSection>
-            </>}
+            </div>}
 
         </motion.div>
     );

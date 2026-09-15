@@ -85,8 +85,11 @@ export async function removePhysicalFile(file: any): Promise<void> {
 export async function updateScopedFileById(id: string, setSql: string, values: any[]): Promise<number> {
     const scope = await getCurrentStorageScope();
     const idParam = nextParam(scope, values.length + 1);
+    // Callers number their trusted SET fragment from $1; scope parameters
+    // precede the SET values in the bound array and need a separate range.
+    const scopedSetSql = setSql.replace(/\$(\d+)/g, (_, index: string) => `$${Number(index) + scope.params.length}`);
     const result = await query(
-        `UPDATE files SET ${setSql} WHERE ${scope.clause} AND id = ${idParam}`,
+        `UPDATE files SET ${scopedSetSql} WHERE ${scope.clause} AND id = ${idParam}`,
         [...scope.params, ...values, id]
     );
     return result.rowCount || 0;

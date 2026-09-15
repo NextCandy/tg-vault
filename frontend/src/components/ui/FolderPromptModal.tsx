@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { FolderPlus } from "lucide-react";
+import { FolderPlus } from "./icons";
 import { useTranslation } from "react-i18next";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
@@ -73,7 +73,6 @@ export const FolderPromptModal = ({ isOpen, onClose, onConfirm, onCancel, onRoot
                                     placeholder={t('files.ui.folderPrompt.placeholder')}
                                     value={folderName}
                                     onChange={(e) => setFolderName(e.target.value)}
-                                    autoFocus
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter") handleConfirm();
                                     }}

@@ -1,7 +1,7 @@
 {
   "name": "tg-vault",
   "private": true,
-  "version": "2.4.5",
+  "version": "2.4.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "i18next-browser-languagedetector": "^8.2.0",

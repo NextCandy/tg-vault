@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Trash2 } from "lucide-react";
+import { Trash2 } from "./icons";
 import { useTranslation } from "react-i18next";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 import type { BatchDeleteResult } from "../../services/api";
 import { formatDeleteSize } from "./deletePresentation";
+import './overlays.css';
 
 interface DeleteAlertProps {
     isOpen: boolean;
@@ -49,37 +50,37 @@ export const DeleteAlert = ({
 
     const isPartial = result?.status === 'partial';
     const modalContent = (
-        <Dialog open={isOpen} onClose={onClose} labelledBy="delete-alert-title" alert closeOnEscape={!isDeleting} closeOnBackdrop={!isDeleting} className="w-full max-w-md">
+        <Dialog open={isOpen} onClose={onClose} labelledBy="delete-alert-title" alert closeOnEscape={!isDeleting} closeOnBackdrop={!isDeleting} describedBy="delete-alert-description">
                 <motion.div
                     initial={{ scale: 0.95, opacity: 0, y: 10 }}
                     animate={{ scale: 1, opacity: 1, y: 0 }}
                     exit={{ scale: 0.95, opacity: 0, y: 10 }}
                     transition={{ type: "spring", stiffness: 350, damping: 25 }}
-                    className="w-full overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
+                    className="tv-modal-content" aria-busy={isDeleting}
                 >
-                    <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-muted/30">
-                        <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
+                    <div className="tv-modal-header">
+                        <div className="tv-modal-icon tv-modal-icon--danger">
                             <Trash2 className="h-5 w-5" />
                         </div>
-                        <div className="flex flex-col">
-                            <h3 id="delete-alert-title" className="font-semibold text-lg leading-none tracking-tight">
+                        <div className="tv-modal-heading">
+                            <h3 id="delete-alert-title" className="tv-modal-title">
                                 {isPartial ? t('files.ui.deleteDialog.partialTitle') : t('files.ui.deleteDialog.title')}
                             </h3>
-                            <p className="text-sm text-muted-foreground mt-1.5">
+                            <p id="delete-alert-description" className="tv-modal-description">
                                 {isPartial ? t('files.ui.deleteDialog.partialSubtitle') : t('files.ui.deleteDialog.subtitle')}
                             </p>
                         </div>
                     </div>
 
-                    <div className="p-6">
+                    <div className="tv-modal-body">
                         {isPartial ? (
                             <div className="space-y-3 text-sm">
                                 <p className="text-foreground/80">
                                     {t('files.ui.deleteDialog.partialSummary', { deleted: result.deletedIds.length, failed: result.failedFiles.length })}
                                 </p>
-                                <ul className="max-h-48 space-y-2 overflow-auto rounded-lg border border-border bg-muted/20 p-3">
+                                <ul className="tv-result-list">
                                     {result.failedFiles.map(file => (
-                                        <li key={file.id} className="break-all">
+                                        <li key={file.id} className="tv-wrap">
                                             <span className="font-medium">{file.name}</span>
                                             <span className="block text-xs text-muted-foreground">{file.error}</span>
                                         </li>
@@ -89,7 +90,7 @@ export const DeleteAlert = ({
                             </div>
                         ) : (
                             <div className="flex items-start gap-4">
-                                <div className="flex-1">
+                                <div className="min-w-0 flex-1">
                                     <p className="text-sm text-foreground/80 leading-relaxed">
                                         {itemCount > 0 ? (
                                             <>
@@ -119,17 +120,19 @@ export const DeleteAlert = ({
                         )}
                     </div>
 
-                    <div className="flex justify-end gap-3 px-6 py-4 border-t border-border bg-muted/30">
+                    <div className="tv-modal-footer">
                         <Button
                             variant="outline"
-                            className="h-10 px-5 text-sm font-medium border-border/80 hover:bg-muted"
+                            className="tv-modal-action"
+                            disabled={isDeleting}
                             onClick={isDeleting ? undefined : onClose}
                         >
                             {isPartial ? t('common.actions.close') : t('common.actions.cancel')}
                         </Button>
                         {!isPartial && (
                             <Button
-                                className="h-10 px-5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white shadow-sm border border-red-700/50"
+                                variant="destructive"
+                                className="tv-modal-action"
                                 onClick={handleConfirm}
                                 disabled={isDeleting}
                             >

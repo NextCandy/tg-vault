@@ -1,18 +1,15 @@
+import { AboutPage } from './components/pages/AboutPage';
 import { tr } from './i18n/runtime';
-import { Fragment, useState, useMemo, useEffect, useCallback, useRef, lazy, Suspense } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { AppLayout } from "./components/layout/AppLayout";
 import { Button } from "./components/ui/Button";
-import { FileCard } from "./components/ui/FileCard";
-import { FolderCard, type FolderData } from "./components/ui/FolderCard";
-import { Search, RefreshCw, ArrowLeft, ChevronDown, ChevronRight, CheckSquare, FolderPlus, Upload } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { FilesPage } from "./components/pages/FilesPage";
+import { type FolderData } from "./components/ui/FolderCard";
+import { Upload } from "./components/ui/icons";
 import { BulkActionToolbar } from "./components/ui/BulkActionToolbar";
 import { useTranslation } from "react-i18next";
-import { EmptyState } from "./components/ui/EmptyState";
 import { LoginPage } from "./components/pages/LoginPage";
-import { ViewToggle } from "./components/ui/ViewToggle";
 import { FileTypeFilter, type FileTypeCategory } from "./components/ui/FileTypeFilter";
-import { FileMenu } from "./components/ui/FileMenu";
 import { DeleteAlert } from "./components/ui/DeleteAlert";
 import { RenameModal } from "./components/ui/RenameModal";
 import { MoveModal } from "./components/ui/MoveModal";
@@ -27,17 +24,14 @@ import { createBrowserFileQueryCache, type FileQuerySnapshot } from "./services/
 import { BoundedUploadQueue } from "./services/boundedUploadQueue";
 import { createUploadTelemetry, updateUploadTelemetry } from "./services/uploadTelemetry";
 import { describeFileViewState } from "./services/fileViewState";
-import { buildFolderBreadcrumbs, parentFolder } from "./services/folderNavigation";
 import { attachUploadSession, createUploadQueueInput, type UploadQueueInput } from "./services/uploadQueueInput";
 import { createUploadTargetSnapshot } from "./services/uploadTargetSnapshot";
 import { StorageStatisticsSynchronization } from "./services/storageStatisticsSynchronization";
-import { activateParentControl } from "./services/keyboardActivation";
 import { ConfirmDialog } from "./components/ui/ConfirmDialog";
 import { appRouteHref, parseAppRoute, routeForCategory, routeForSettings, type AppRoute } from "./services/appRoute";
 import type { SettingsSectionId } from "./components/pages/settingsSections";
 import { IndeterminateSpinner } from "./components/ui/IndeterminateSpinner";
 import { UploadCenter } from "./components/pages/UploadCenter";
-import { getProviderMetadata } from "./services/providerMetadata";
 import { errorMessage, isErrorNamed } from "./services/unknownError";
 import { useAuthSession } from "./hooks/useAuthSession";
 
@@ -188,7 +182,6 @@ function App() {
   const [batchDeleteResult, setBatchDeleteResult] = useState<BatchDeleteResult | null>(null);
   const [searchQuery, setSearchQuery] = useState(() => initialRoute.kind === 'files' ? initialRoute.query : '');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(searchQuery);
-  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [currentFolder, setCurrentFolder] = useState<string | null>(() => initialRoute.kind === 'files' ? initialRoute.folder : null); // selected folder
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(() => initialRoute.kind === 'settings' ? initialRoute.section : 'general');
   const [isNavigationTapShieldActive, setIsNavigationTapShieldActive] = useState(false);
@@ -217,7 +210,7 @@ function App() {
   const [selectedFolderNames, setSelectedFolderNames] = useState<string[]>([]);
 
   // 响应式列数监听
-  const [columns, setColumns] = useState(2);
+  const [columns, setColumns] = useState(() => window.innerWidth <= 480 ? 1 : window.innerWidth <= 1200 ? 2 : window.innerWidth < 1600 ? 3 : 4);
 
   const clearFileInteractionState = useCallback(() => {
     setIsSelectionMode(false);
@@ -312,11 +305,11 @@ function App() {
   useEffect(() => {
     const updateColumns = () => {
       const width = window.innerWidth;
-      // 对应 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5
-      if (width >= 1280) setColumns(5); // xl
-      else if (width >= 1024) setColumns(4); // lg
-      else if (width >= 768) setColumns(3); // md
-      else setColumns(2); // default/sm
+      // Match files.css exactly, including the inclusive mobile breakpoints.
+      if (width <= 480) setColumns(1);
+      else if (width <= 1200) setColumns(2);
+      else if (width < 1600) setColumns(3);
+      else setColumns(4);
     };
 
     updateColumns();
@@ -1077,13 +1070,13 @@ function App() {
     });
   }, [currentCategory, currentFolder, folderAggregations, sortConfig]);
 
+  const folderColumns = viewMode === 'list' ? 1 : columns;
   const visibleFolders = useMemo(() => {
     if (isFoldersExpanded) return folders;
-    return folders.slice(0, columns);
-  }, [folders, isFoldersExpanded, columns]);
+    return folders.slice(0, folderColumns);
+  }, [folders, isFoldersExpanded, folderColumns]);
 
-  // 如果文件夹总数不超过一行，则不需要显示展开/折叠按钮
-  const showFolderToggle = folders.length > columns;
+  const showFolderToggle = folders.length > folderColumns;
 
   // The API already returns a globally sorted cursor page. Preserve that order.
   const looseFiles = useMemo(() => {
@@ -1226,10 +1219,10 @@ function App() {
   return (
     <>
       <AppLayout activeCategory={currentCategory} onCategoryChange={handleCategoryChange} storageStats={storageStats} onLogout={handleLogout}>
-        <div className="flex flex-col gap-4 max-w-7xl mx-auto min-h-full sm:gap-8">
+        <div className="flex min-w-0 flex-col min-h-full">
 
           {/* Main Content Area */}
-          {currentCategory === "settings" ? (
+          {currentCategory === "about" ? <AboutPage /> : currentCategory === "settings" ? (
             <Suspense fallback={<LazyFallback />}>
               <SettingsPage
                 storageStats={storageStats}
@@ -1263,441 +1256,107 @@ function App() {
               onOpenQueue={() => setIsQueueModalOpen(true)}
             />
           ) : (
-            <>
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-3xl font-bold tracking-tight text-foreground">
-                    {currentCategory === "favorites"
-                      ? t("sidebar.favorites")
-                      : t("sidebar.files")}
-                  </h2>
-                  <p className="text-muted-foreground mt-1">
-                    {currentCategory === "favorites"
-                      ? t("app.favoritesSubtitle")
-                      : t("app.filesSubtitle")}
-                  </p>
-                </div>
-                <div data-testid="file-toolbar" className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:flex-nowrap md:items-center">
-                  <div className="order-2 w-full md:order-1 md:w-auto">
-                    <FileTypeFilter
-                      value={currentCategory}
-                      onChange={handleFileTypeChange}
-                    />
-                  </div>
-                  <div data-testid="file-toolbar-primary" className="order-1 flex min-w-0 items-center gap-1 md:order-2 md:gap-3">
-                    <div className="relative hidden md:block group">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-                      <input
-                        className="h-10 w-64 rounded-full border border-border bg-background pl-9 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-sm focus:shadow-md"
-                        placeholder={t("app.searchPlaceholder")}
-                        value={searchQuery}
-                        onChange={(e) => updateSearchQuery(e.target.value)}
-                      />
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 rounded-full md:hidden"
-                      onClick={() => setIsMobileSearchOpen(open => !open)}
-                      aria-label={t("app.mobileSearch")}
-                    >
-                      <Search className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 rounded-full"
-                      onClick={() => { loadFiles(); loadStorageStats(); }}
-                      disabled={loading}
-                      aria-label={t("app.refresh")}
-                      title={t("app.refresh")}
-                    >
-                      {loading ? <IndeterminateSpinner label={t('files.refreshFiles')} size="sm" /> : <RefreshCw className="h-4 w-4" />}
-                    </Button>
-
-                    {/* 多选切换按钮 */}
-                    <Button
-                      variant={isSelectionMode ? "secondary" : "ghost"}
-                      size="sm"
-                      className="h-11 px-2 text-sm flex items-center gap-1.5 touch-manipulation sm:px-4 sm:gap-2"
-                      onClick={() => {
-                        setIsSelectionMode(!isSelectionMode);
-                        setSelectedFileIds([]);
-                        setSelectedFolderNames([]);
-                      }}
-                    >
-                      <CheckSquare className="h-4 w-4" />
-                      <span>{t(isSelectionMode ? 'files.exitSelection' : 'files.select')}</span>
-                    </Button>
-                  </div>
-
-                  <div data-testid="file-toolbar-secondary" className="order-3 flex shrink-0 items-center gap-2 md:gap-3">
-                    {/* 排序按钮 */}
-                    <div className="bg-muted/50 rounded-lg p-1 flex items-center gap-1">
-                      <Button
-                        variant={sortConfig.key === 'name' ? 'secondary' : 'ghost'}
-                        size="sm"
-                        className="h-10 px-2 text-xs touch-manipulation sm:px-3"
-                        onClick={() => setSortConfig(current => ({
-                          key: 'name',
-                          direction: current.key === 'name' && current.direction === 'asc' ? 'desc' : 'asc'
-                        }))}
-                      >
-                        {t('files.sortName')} {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                      </Button>
-                      <Button
-                        variant={sortConfig.key === 'date' ? 'secondary' : 'ghost'}
-                        size="sm"
-                        className="h-10 px-2 text-xs touch-manipulation sm:px-3"
-                        onClick={() => setSortConfig(current => ({
-                          key: 'date',
-                          direction: current.key === 'date' && current.direction === 'asc' ? 'desc' : 'asc'
-                        }))}
-                      >
-                        {t('files.sortDate')} {sortConfig.key === 'date' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                      </Button>
-                    </div>
-
-                    <div className="bg-muted/50 rounded-lg">
-                      <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {isMobileSearchOpen && (
-                <div className="relative md:hidden">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    autoFocus
-                    className="h-11 w-full rounded-xl border border-border bg-background pl-9 pr-10 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                    placeholder={t("app.searchPlaceholder")}
-                    value={searchQuery}
-                    onChange={event => updateSearchQuery(event.target.value)}
-                  />
-                  {searchQuery && <button className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground" onClick={() => updateSearchQuery('')}>{t('app.cancel')}</button>}
-                </div>
-              )}
-
-              {(uploadQueue.length > 0 || recoveredUploads.length > 0) && !isQueueModalOpen && (
-                <div className="sticky bottom-4 z-40 flex justify-end pointer-events-none">
-                  <Button className="pointer-events-auto gap-2 shadow-lg" onClick={() => setIsQueueModalOpen(true)}>
-                    <Upload className="h-4 w-4" />
-                    {t('files.uploadQueue', { count: uploadQueue.filter(item => ['pending', 'uploading', 'processing'].includes(item.status)).length + recoveredUploads.length })}
-                  </Button>
-                </div>
-              )}
-
-            {isSelectionMode && (
-                <div className="sticky top-0 z-30 -mx-4 px-4 pt-2">
-                  <BulkActionToolbar
-                    isVisible
-                    selectedFilesCount={selectedFileIds.length}
-                    selectedFoldersCount={selectedFolderNames.length}
-                    selectedFileId={selectedFileIds.length === 1 ? selectedFileIds[0] : undefined}
-                    onCancel={() => {
-                      setIsSelectionMode(false);
-                      setSelectedFileIds([]);
-                      setSelectedFolderNames([]);
-                    }}
-                    onDelete={() => void handleBatchDelete()}
-                    onShare={handleShare}
-                    shareCapabilities={storageConfig?.capabilities}
-                    canDelete={storageConfig?.capabilities.userDelete !== false}
-                  />
-                </div>
-              )}
-
-              {/* Files View */}
-              <div className="flex flex-col">
-                <div className="flex items-center justify-between mb-2 sm:mb-4">
-                  <h3 className="text-lg font-semibold flex min-w-0 flex-wrap items-center gap-2">
-                    {currentFolder ? (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-11 w-11 rounded-full touch-manipulation"
-                          onClick={() => navigateFolder(parentFolder(currentFolder))}
-                          aria-label={t('files.backToParent')}
-                        >
-                          <ArrowLeft className="h-4 w-4" />
-                        </Button>
-                        <button className="text-sm text-muted-foreground hover:text-foreground" onClick={() => navigateFolder(null)}>{t('files.root')}</button>
-                        {buildFolderBreadcrumbs(currentFolder).map(({ label: segment, path }) => {
-                          return (
-                            <Fragment key={path}>
-                              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                              <button className="max-w-40 truncate text-sm hover:text-primary" onClick={() => navigateFolder(path)}>{segment}</button>
-                            </Fragment>
-                          );
-                        })}
-                        <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                          {t('appCopy.subfolderSummary', { folders: folders.length, files: displayFiles.length })}
-                        </span>
-                        <Button variant="ghost" size="sm" className="h-10 px-3 text-xs" onClick={() => setIsCreateFolderModalOpen(true)}>
-                          <FolderPlus className="h-3.5 w-3.5" />
-                          {t('files.newSubfolder')}
-                        </Button>
-                      </>
-                    ) : (
-                      <div className="flex items-center gap-3">
-                        {t("app.allFiles")}
-                        <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                          {t('appCopy.folderFileSummary', { folders: folders.length, files: looseFiles.length })}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-10 px-3 text-xs font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 touch-manipulation"
-                          onClick={() => setIsCreateFolderModalOpen(true)}
-                        >
-                          <FolderPlus className="h-3.5 w-3.5" />
-                          {t('files.createFolder')}
-                        </Button>
-                      </div>
-                    )}
-                  </h3>
-
-                </div>
-
-                {queryError && isStale && (
-                  <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-200">
-                    <div className="flex items-center justify-between gap-4">
-                      <span>{t('empty.stale.title')}：{queryError}</span>
-                      <Button variant="outline" size="sm" onClick={() => void loadFiles()}>{t('empty.retry')}</Button>
-                    </div>
-                  </div>
-                )}
-                {loading && files.length === 0 && folderAggregations.length === 0 ? (
-                  <div className="flex items-center justify-center py-20">
-                    <IndeterminateSpinner label={t('files.loadingFiles')} size="lg" />
-                  </div>
-                ) : queryError && !isStale ? (
-                  <EmptyState kind={fileViewState.kind} onRetry={() => void loadFiles()} />
-                ) : displayFiles.length === 0 && folders.length === 0 ? (
-                  <EmptyState
-                    kind={fileViewState.kind}
-                    onRetry={() => void loadFiles()}
-                    onClearSearch={() => updateSearchQuery('')}
-                    onClearFilter={() => handleCategoryChange('all')}
-                  />
-                ) : currentFolder ? (
-                  /* 文件夹内容视图 */
-                  <div className="space-y-8">
-                    {folders.length > 0 && (
-                      <div className={viewMode === "grid" ? "grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5" : "flex flex-col gap-2"}>
-                        {visibleFolders.map(folder => (
-                          <FolderCard
-                            key={folder.name}
-                            folder={folder}
-                            onClick={() => enterFolder(folder.name)}
-                            onRename={() => setRenamingFolder(folder.name)}
-                            onToggleFavorite={() => handleToggleFolderFavorite(folder.name)}
-                            onMove={() => setMovingFolder(folder.name)}
-                            onDelete={storageConfig?.capabilities.userDelete !== false ? () => handleBatchDelete([], [folder.name]) : undefined}
-                            isSelectionMode={isSelectionMode}
-                            isSelected={selectedFolderNames.includes(folder.name)}
-                            onSelect={toggleFolderSelection}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {displayFiles.length > 0 && (
-                      <div className={viewMode === "grid" ? "grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5" : "flex flex-col gap-2"}>
-                        <AnimatePresence mode="wait">
-                          {renderedFiles.map((file) => (
-                            <motion.div key={file.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
-                              {viewMode === "grid" ? (
-                                <FileCard
-                                  file={file}
-                                  onPreview={() => setSelectedFile(file)}
-                                  onDelete={storageConfig?.capabilities.userDelete !== false ? () => verifyDelete(file) : undefined}
-                                  onRename={() => setRenamingFile(file)}
-                                  onToggleFavorite={() => handleToggleFavorite(file.id)}
-                                  onMove={() => setMovingFile(file)}
-                                  isSelectionMode={isSelectionMode}
-                                  isSelected={selectedFileIds.includes(file.id)}
-                                  onSelect={toggleFileSelection}
-                                />
-                              ) : (
-                                <div
-                                  className={`flex min-h-[64px] items-center gap-4 p-3 rounded-xl border ${selectedFileIds.includes(file.id) ? 'border-primary bg-primary/5' : 'border-border bg-card'} shadow-sm cursor-pointer group hover:bg-muted/50 transition-colors touch-manipulation`}
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={() => isSelectionMode ? toggleFileSelection(file.id) : setSelectedFile(file)}
-                                  onKeyDown={(event) => {
-                                    activateParentControl(event, () => {
-                                      if (isSelectionMode) toggleFileSelection(file.id);
-                                      else setSelectedFile(file);
-                                    });
-                                  }}
-                                >
-                                  <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground uppercase">{file.type.slice(0, 3)}</div>
-                                  <div className="flex-1 min-w-0"><h4 className="font-medium truncate">{file.name}</h4><p className="text-xs text-muted-foreground">{file.date}</p></div>
-                                  <div className="text-sm font-medium tabular-nums text-muted-foreground">{file.size}</div>
-                                  <FileMenu onDownload={() => void fileApi.downloadFile(file.id, file.name)} onRename={() => setRenamingFile(file)} onMove={() => setMovingFile(file)} onDelete={storageConfig?.capabilities.userDelete !== false ? () => verifyDelete(file) : undefined} onToggleFavorite={() => handleToggleFavorite(file.id)} isFavorite={!!file.is_favorite} />
-                                </div>
-                              )}
-                            </motion.div>
-                          ))}
-                        </AnimatePresence>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* 主视图：文件夹 + 散文件 */
-                  <div className="space-y-8">
-                    {/* 文件夹区域 */}
-                    {folders.length > 0 && (
-                      <div className="space-y-4">
-                        <div
-                          className={`flex items-center gap-2 p-2 rounded-lg -ml-2 transition-colors w-full ${showFolderToggle ? 'cursor-pointer hover:bg-muted/50' : ''}`}
-                          onClick={() => showFolderToggle && setIsFoldersExpanded(!isFoldersExpanded)}
-                        >
-                          {showFolderToggle && (
-                            <div className="p-1 rounded-md hover:bg-muted transition-colors">
-                              {isFoldersExpanded ? (
-                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                              )}
-                            </div>
-                          )}
-                          <h4 className={`text-sm font-medium text-muted-foreground flex items-center gap-2 select-none ${!showFolderToggle ? 'pl-2' : ''}`}>
-                            📁 {t('appCopy.folderLabel')}
-                            <span className="text-xs bg-muted px-2 py-0.5 rounded-full">
-                              {folders.length}
-                            </span>
-                          </h4>
-                        </div>
-
-                        <div className={viewMode === "grid" ? "grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 pb-4" : "flex flex-col gap-2 pb-4"}>
-                          <AnimatePresence mode="popLayout">
-                            {visibleFolders.map((folder) => (
-                              <motion.div
-                                key={folder.name}
-                                initial={{ opacity: 0, scale: 0.9 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.9 }}
-                                transition={{ duration: 0.2 }}
-                                layout
-                              >
-                                <FolderCard
-                                  folder={folder}
-                                  onClick={() => enterFolder(folder.name)}
-                                  onRename={() => setRenamingFolder(folder.name)}
-                                  onToggleFavorite={() => handleToggleFolderFavorite(folder.name)}
-                                  onMove={() => setMovingFolder(folder.name)}
-                                  onDelete={storageConfig?.capabilities.userDelete !== false ? () => handleBatchDelete([], [folder.name]) : undefined}
-                                  isSelectionMode={isSelectionMode}
-                                  isSelected={selectedFolderNames.includes(folder.name)}
-                                  onSelect={toggleFolderSelection}
-                                />
-                              </motion.div>
-                            ))}
-                          </AnimatePresence>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 散文件区域 */}
-                    {looseFiles.length > 0 && (
-                      <div>
-                        {folders.length > 0 && (
-                          <h4 className="text-sm font-medium text-muted-foreground mb-4 flex items-center gap-2">
-                            📄 {t('appCopy.fileLabel')}
-                          </h4>
-                        )}
-                        <div className={viewMode === "grid" ? "grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5" : "flex flex-col gap-2"}>
-                          <AnimatePresence mode="wait">
-                            {renderedFiles.map((file) => (
-                              <motion.div
-                                key={file.id}
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: 0.15 }}
-                              >
-                                {viewMode === "grid" ? (
-                                  <FileCard
-                                    file={file}
-                                    onPreview={() => setSelectedFile(file)}
-                                    onDelete={storageConfig?.capabilities.userDelete !== false ? () => verifyDelete(file) : undefined}
-                                    onRename={() => setRenamingFile(file)}
-                                    onToggleFavorite={() => handleToggleFavorite(file.id)}
-                                    onMove={() => setMovingFile(file)}
-                                    isSelectionMode={isSelectionMode}
-                                    isSelected={selectedFileIds.includes(file.id)}
-                                    onSelect={toggleFileSelection}
-                                  />
-                                ) : (
-                                  <div
-                                    className={`flex min-h-[64px] items-center gap-4 p-3 rounded-xl border ${selectedFileIds.includes(file.id) ? 'border-primary bg-primary/5' : 'border-border bg-card'} shadow-sm cursor-pointer group hover:bg-muted/50 transition-colors touch-manipulation`}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => isSelectionMode ? toggleFileSelection(file.id) : setSelectedFile(file)}
-                                    onKeyDown={(event) => {
-                                      activateParentControl(event, () => {
-                                        if (isSelectionMode) toggleFileSelection(file.id);
-                                        else setSelectedFile(file);
-                                      });
-                                    }}
-                                  >
-                                    {isSelectionMode && (
-                                      <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${selectedFileIds.includes(file.id) ? 'bg-primary border-primary' : 'border-muted-foreground/30'}`}>
-                                        {selectedFileIds.includes(file.id) && <div className="h-2 w-2 bg-white rounded-full" />}
-                                      </div>
-                                    )}
-                                    <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground uppercase tracking-wider group-hover:bg-background transition-colors">
-                                      {file.type.slice(0, 3)}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <h4 className="font-medium truncate group-hover:text-primary transition-colors">{file.name}</h4>
-                                      <div className="flex items-center gap-2">
-                                        <p className="text-xs text-muted-foreground">{file.date}</p>
-                                        <span className="text-[10px] text-muted-foreground/60">•</span>
-                                        {(() => { const provider = getProviderMetadata(file.source); const ProviderIcon = provider.icon; return <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60"><ProviderIcon className="h-2.5 w-2.5" /><span>{provider.id === 'local' ? t('appCopy.localStorage') : provider.label}</span></div>; })()}
-                                      </div>
-                                    </div>
-                                    <div className="text-sm font-medium tabular-nums text-muted-foreground px-4">{file.size}</div>
-                                    <div>
-                                      <FileMenu onDownload={() => void fileApi.downloadFile(file.id, file.name)} onRename={() => setRenamingFile(file)} onMove={() => setMovingFile(file)} onDelete={storageConfig?.capabilities.userDelete !== false ? () => verifyDelete(file) : undefined} onToggleFavorite={() => handleToggleFavorite(file.id)} isFavorite={!!file.is_favorite} />
-                                    </div>
-                                  </div>
-                                )}
-                              </motion.div>
-                            ))}
-                          </AnimatePresence>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {displayedFileSource.length > FILE_RENDER_WINDOW_SIZE && !loading && (
-                  <nav className="flex items-center justify-center gap-3 pt-6" aria-label={t('appCopy.loadedFilesWindow')}>
-                    <Button variant="outline" disabled={fileRenderWindow === 0} onClick={() => setFileRenderWindow(value => Math.max(0, value - 1))}>{t('files.previousBatch')}</Button>
-                    <span className="text-sm text-muted-foreground">{t('files.loadedBatch', { current: fileRenderWindow + 1, total: fileRenderWindowCount })}</span>
-                    <Button variant="outline" disabled={fileRenderWindow >= fileRenderWindowCount - 1} onClick={() => setFileRenderWindow(value => Math.min(fileRenderWindowCount - 1, value + 1))}>{t('files.nextBatch')}</Button>
-                  </nav>
-                )}
-
-                {hasMoreFiles && !loading && (
-                  <div className="flex justify-center pt-8">
-                    <Button
-                      variant="outline"
-                      onClick={loadMoreFiles}
-                      disabled={loadingMoreFiles}
-                      className="gap-2"
-                    >
-                      {loadingMoreFiles ? <IndeterminateSpinner label={t('files.loadingMore')} size="sm" /> : <RefreshCw className="h-4 w-4" />}
-                      {loadingMoreFiles ? t('common.status.loading') : t('common.actions.loadMore')}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </>
+            <FilesPage
+              currentCategory={currentCategory}
+              currentFolder={currentFolder}
+              searchQuery={searchQuery}
+              onSearchChange={updateSearchQuery}
+              filterControl={<FileTypeFilter value={currentCategory} onChange={handleFileTypeChange} />}
+              onClearFilter={() => navigateRoute(routeForCategory('all', { folder: currentFolder, query: '' }))}
+              sortConfig={sortConfig}
+              onSort={key => setSortConfig(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              onUpload={() => handleCategoryChange('upload')}
+              onRefresh={() => { void loadFiles(); void loadStorageStats(); }}
+              onCreateFolder={() => setIsCreateFolderModalOpen(true)}
+              onNavigateFolder={navigateFolder}
+              folders={folders}
+              visibleFolders={visibleFolders}
+              isFoldersExpanded={isFoldersExpanded}
+              showFolderToggle={showFolderToggle}
+              onToggleFolders={() => setIsFoldersExpanded(expanded => !expanded)}
+              renderedFiles={renderedFiles}
+              displayedFileCount={displayedFileSource.length}
+              loading={loading}
+              initialEmpty={files.length === 0 && folderAggregations.length === 0}
+              queryError={queryError}
+              isStale={isStale}
+              emptyKind={fileViewState.kind}
+              onOpenFolder={enterFolder}
+              onRenameFolder={setRenamingFolder}
+              onFavoriteFolder={name => void handleToggleFolderFavorite(name)}
+              onMoveFolder={setMovingFolder}
+              onDeleteFolder={storageConfig?.capabilities.userDelete !== false ? name => void handleBatchDelete([], [name]) : undefined}
+              onPreviewFile={setSelectedFile}
+              onRenameFile={setRenamingFile}
+              onFavoriteFile={id => void handleToggleFavorite(id)}
+              onMoveFile={setMovingFile}
+              onDeleteFile={storageConfig?.capabilities.userDelete !== false ? verifyDelete : undefined}
+              selection={{
+                active: isSelectionMode,
+                fileIds: selectedFileIds,
+                folderNames: selectedFolderNames,
+                onToggle: () => {
+                  setIsSelectionMode(active => !active);
+                  setSelectedFileIds([]);
+                  setSelectedFolderNames([]);
+                },
+                onFile: toggleFileSelection,
+                onFolder: toggleFolderSelection,
+                onSelectVisible: selected => {
+                  // Only the current rendered window and expanded folder rows;
+                  // never imply selection of unloaded cursor results.
+                  const visibleFileIds = renderedFiles.map(file => file.id);
+                  const visibleFolderNames = visibleFolders.map(folder => folder.name);
+                  setSelectedFileIds(current => selected
+                    ? Array.from(new Set([...current, ...visibleFileIds]))
+                    : current.filter(id => !visibleFileIds.includes(id)));
+                  setSelectedFolderNames(current => selected
+                    ? Array.from(new Set([...current, ...visibleFolderNames]))
+                    : current.filter(name => !visibleFolderNames.includes(name)));
+                },
+              }}
+              pagination={{
+                renderWindow: fileRenderWindow,
+                windowCount: fileRenderWindowCount,
+                showWindowControls: displayedFileSource.length > FILE_RENDER_WINDOW_SIZE,
+                hasMore: hasMoreFiles,
+                loadingMore: loadingMoreFiles,
+                onPrevious: () => setFileRenderWindow(value => Math.max(0, value - 1)),
+                onNext: () => setFileRenderWindow(value => Math.min(fileRenderWindowCount - 1, value + 1)),
+                onLoadMore: () => void loadMoreFiles(),
+              }}
+              bulkActions={<BulkActionToolbar
+                isVisible
+                selectedFilesCount={selectedFileIds.length}
+                selectedFoldersCount={selectedFolderNames.length}
+                selectedFileId={selectedFileIds.length === 1 ? selectedFileIds[0] : undefined}
+                onCancel={() => {
+                  setIsSelectionMode(false);
+                  setSelectedFileIds([]);
+                  setSelectedFolderNames([]);
+                }}
+                onMove={() => {
+                  if (selectedFileIds.length === 1 && selectedFolderNames.length === 0) {
+                    const file = files.find(item => item.id === selectedFileIds[0]);
+                    if (file) setMovingFile(file);
+                  } else if (selectedFileIds.length === 0 && selectedFolderNames.length === 1) {
+                    setMovingFolder(selectedFolderNames[0]);
+                  }
+                }}
+                onDelete={() => void handleBatchDelete()}
+                onShare={handleShare}
+                shareCapabilities={storageConfig?.capabilities}
+                canDelete={storageConfig?.capabilities.userDelete !== false}
+              />}
+              uploadQueueAction={(uploadQueue.length > 0 || recoveredUploads.length > 0) && !isQueueModalOpen ? (
+                <Button onClick={() => setIsQueueModalOpen(true)}>
+                  <Upload className="h-4 w-4" />
+                  {t('files.uploadQueue', { count: uploadQueue.filter(item => ['pending', 'uploading', 'processing'].includes(item.status)).length + recoveredUploads.length })}
+                </Button>
+              ) : null}
+            />
           )}
         </div>
 

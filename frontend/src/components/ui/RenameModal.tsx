@@ -1,9 +1,10 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Pencil } from "lucide-react";
+import { Pencil } from "./icons";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
+import './overlays.css';
 
 interface RenameModalProps {
     isOpen: boolean;
@@ -84,6 +85,8 @@ export const RenameModal = ({ isOpen, onClose, onConfirm, currentName, type }: R
             e.preventDefault();
             void handleConfirm();
         } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
             onClose();
         }
     };
@@ -98,26 +101,25 @@ export const RenameModal = ({ isOpen, onClose, onConfirm, currentName, type }: R
                     closeOnBackdrop={!isSubmitting}
                     labelledBy="rename-modal-title"
                     describedBy={error ? "rename-modal-error" : undefined}
-                    className="w-full max-w-md"
                 >
                     <motion.div
                         initial={{ opacity: 0, scale: 0.95, y: 10 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 10 }}
                         transition={{ duration: 0.15 }}
-                        className="w-full bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-border overflow-hidden"
+                        className="tv-modal-content" aria-busy={isSubmitting}
                     >
                         {/* Header */}
-                        <div className="flex items-center gap-3 px-6 pt-6 pb-2">
-                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                        <div className="tv-modal-header">
+                            <div className="tv-modal-icon">
                                 <Pencil className="h-5 w-5 text-primary" />
                             </div>
-                            <div>
-                                <h3 id="rename-modal-title" className="text-lg font-semibold text-foreground">
+                            <div className="tv-modal-heading">
+                                <h3 id="rename-modal-title" className="tv-modal-title">
                                     {t('files.ui.rename.title')}
                                 </h3>
                                 {type === "file" && extension && (
-                                    <p className="text-xs text-muted-foreground">
+                                    <p className="tv-modal-description">
                                         {t('files.ui.rename.extensionHint')}
                                     </p>
                                 )}
@@ -125,12 +127,16 @@ export const RenameModal = ({ isOpen, onClose, onConfirm, currentName, type }: R
                         </div>
 
                         {/* Input */}
-                        <div className="px-6 py-4">
-                            <div className="flex items-center rounded-xl border border-border bg-muted/30 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-all overflow-hidden">
+                        <div className="tv-modal-body">
+                            <div className="tv-input-group">
                                 <input
                                     ref={inputRef}
                                     type="text"
-                                    className="flex-1 px-4 py-3 text-sm bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
+                                    className="tv-input-group__input"
+                                    aria-label={t('files.ui.rename.placeholder')}
+                                    aria-invalid={Boolean(error)}
+                                    aria-describedby={error ? "rename-modal-error" : undefined}
+                                    disabled={isSubmitting}
                                     placeholder={t('files.ui.rename.placeholder')}
                                     value={baseName}
                                     onChange={(e) => {
@@ -140,28 +146,28 @@ export const RenameModal = ({ isOpen, onClose, onConfirm, currentName, type }: R
                                     onKeyDown={handleKeyDown}
                                 />
                                 {type === "file" && extension && (
-                                    <span className="pr-4 text-sm text-muted-foreground font-medium select-none">
+                                    <span className="tv-input-group__suffix">
                                         {extension}
                                     </span>
                                 )}
                             </div>
                             {error && (
-                                <p id="rename-modal-error" className="mt-2 text-xs text-red-500 font-medium">{error}</p>
+                                <p id="rename-modal-error" role="alert" className="tv-form-error">{error}</p>
                             )}
                         </div>
 
                         {/* Actions */}
-                        <div className="flex items-center justify-end gap-3 px-6 pb-6">
+                        <div className="tv-modal-footer">
                             <Button
-                                variant="ghost"
-                                className="rounded-xl px-5"
+                                variant="outline"
+                                className="tv-modal-action"
                                 onClick={isSubmitting ? undefined : onClose}
                                 disabled={isSubmitting}
                             >
                                 {t('common.actions.cancel')}
                             </Button>
                             <Button
-                                className="rounded-xl px-5 bg-primary text-primary-foreground hover:bg-primary/90"
+                                className="tv-modal-action"
                                 onClick={() => void handleConfirm()}
                                 disabled={isSubmitting}
                             >

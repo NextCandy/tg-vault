@@ -1,7 +1,8 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Pencil, Download, Trash2, Star, FolderInput } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { Pencil, Download, Trash2, Star, FolderInput } from "./icons";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import './overlays.css';
 
 export interface ContextMenuItem {
     label: string;
@@ -18,50 +19,101 @@ interface ContextMenuProps {
     items: ContextMenuItem[];
 }
 
-export const ContextMenu = ({ x, y, isOpen, onClose, items }: ContextMenuProps) => {
-    const menuRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (!isOpen) return;
-
-        const handleClickOutside = (e: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-                onClose();
-            }
+// Measure the real content, including translated labels, before painting.
+function usePopoverPosition(menuRef: RefObject<HTMLDivElement | null>, isOpen: boolean, x: number, y: number) {
+    const [position, setPosition] = useState({ left: x, top: y });
+    useLayoutEffect(() => {
+        if (!isOpen || !menuRef.current) return;
+        const update = () => {
+            const menu = menuRef.current;
+            if (!menu) return;
+            const viewport = window.visualViewport;
+            const left = (viewport?.offsetLeft ?? 0) + 8;
+            const top = (viewport?.offsetTop ?? 0) + 8;
+            const width = viewport?.width ?? window.innerWidth;
+            const height = viewport?.height ?? window.innerHeight;
+            menu.style.minWidth = `${Math.max(0, Math.min(184, width - 16))}px`;
+            menu.style.maxWidth = `${Math.max(0, Math.min(320, width - 16))}px`;
+            menu.style.maxHeight = `${Math.max(0, height - 16)}px`;
+            const next = {
+                left: Math.max(left, Math.min(x, left + width - 16 - menu.offsetWidth)),
+                top: Math.max(top, Math.min(y, top + height - 16 - menu.offsetHeight)),
+            };
+            setPosition(previous => previous.left === next.left && previous.top === next.top ? previous : next);
         };
-
-        const handleEscape = (e: KeyboardEvent) => {
-            if (e.key === "Escape") onClose();
-        };
-
-        const handleScroll = () => onClose();
-
-        document.addEventListener("mousedown", handleClickOutside);
-        document.addEventListener("keydown", handleEscape);
-        window.addEventListener("scroll", handleScroll, true);
-
+        update();
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+        observer?.observe(menuRef.current);
+        window.addEventListener('resize', update);
+        window.visualViewport?.addEventListener('resize', update);
+        window.visualViewport?.addEventListener('scroll', update);
         return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-            document.removeEventListener("keydown", handleEscape);
-            window.removeEventListener("scroll", handleScroll, true);
+            observer?.disconnect();
+            window.removeEventListener('resize', update);
+            window.visualViewport?.removeEventListener('resize', update);
+            window.visualViewport?.removeEventListener('scroll', update);
         };
-    }, [isOpen, onClose]);
+    }, [isOpen, x, y, menuRef]);
+    return position;
+}
 
-    // Adjust position to keep menu within viewport
+function usePopoverInteraction(menuRef: RefObject<HTMLDivElement | null>, isOpen: boolean, onClose: () => void) {
+    const onCloseRef = useRef(onClose);
+    useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
     useEffect(() => {
         if (!isOpen || !menuRef.current) return;
         const menu = menuRef.current;
-        const rect = menu.getBoundingClientRect();
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
+        const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const buttons = () => Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])'));
+        buttons()[0]?.focus({ preventScroll: true });
+        const handleClickOutside = (e: MouseEvent) => {
+            if (!menu.contains(e.target as Node)) onCloseRef.current();
+        };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.defaultPrevented) return;
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                onCloseRef.current();
+                return;
+            }
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                e.stopPropagation();
+                onCloseRef.current();
+                return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+            const items = buttons();
+            if (!items.length) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const current = items.indexOf(document.activeElement as HTMLButtonElement);
+            const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1
+                : (current + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+            items[next]?.focus();
+        };
+        const handleScroll = (e: Event) => {
+            if (!(e.target instanceof Node) || !menu.contains(e.target)) onCloseRef.current();
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        menu.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keydown', handleKeyDown);
+        window.addEventListener("scroll", handleScroll, true);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+            menu.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener("scroll", handleScroll, true);
+            if (previousFocus?.isConnected && (menu.contains(document.activeElement) || document.activeElement === document.body)) previousFocus.focus({ preventScroll: true });
+        };
+    }, [isOpen, menuRef]);
+}
 
-        if (rect.right > vw) {
-            menu.style.left = `${x - rect.width}px`;
-        }
-        if (rect.bottom > vh) {
-            menu.style.top = `${y - rect.height}px`;
-        }
-    }, [isOpen, x, y]);
+export const ContextMenu = ({ x, y, isOpen, onClose, items }: ContextMenuProps) => {
+    const menuRef = useRef<HTMLDivElement>(null);
+    const position = usePopoverPosition(menuRef, isOpen, x, y);
+    usePopoverInteraction(menuRef, isOpen, onClose);
 
     return createPortal(
         <AnimatePresence>
@@ -69,29 +121,27 @@ export const ContextMenu = ({ x, y, isOpen, onClose, items }: ContextMenuProps) 
                 <motion.div
                     role="menu"
                     ref={menuRef}
-                    initial={{ opacity: 0, scale: 0.92 }}
+                    initial={{ opacity: 0, scale: 0.98 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.92 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
                     transition={{ duration: 0.12 }}
-                    className="fixed z-[9999] min-w-[168px] overflow-hidden rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
-                    style={{ left: x, top: y }}
+                    className="tv-popover-menu"
+                    style={position}
                 >
                     {items.map((item, index) => (
                         <button
+                            type="button"
                             role="menuitem"
                             key={index}
-                            className={`w-full min-h-11 flex items-center gap-3 px-4 py-3 text-base md:text-sm rounded-lg transition-colors text-left font-medium touch-manipulation ${item.variant === "danger"
-                                ? "text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10"
-                                : "text-foreground hover:bg-muted"
-                                }`}
+                            className={`tv-menu-item ${item.variant === "danger" ? "tv-menu-item--danger" : ""}`}
                             onClick={(e) => {
                                 e.stopPropagation();
                                 item.onClick();
                                 onClose();
                             }}
                         >
-                            {item.icon}
-                            {item.label}
+                            <span className="tv-menu-item__icon">{item.icon}</span>
+                            <span className="tv-menu-item__label">{item.label}</span>
                         </button>
                     ))}
                 </motion.div>
@@ -139,7 +189,7 @@ export const createFileMenuItems = (
     if (onToggleFavorite) {
         items.push({
             label: isFavorite ? t('files.ui.actions.unfavorite') : t('files.ui.actions.favorite'),
-            icon: <Star className={`h-4 w-4 ${isFavorite ? 'fill-current' : ''}`} />,
+            icon: <Star className="h-4 w-4" weight={isFavorite ? 'fill' : 'regular'} />,
             onClick: onToggleFavorite,
         });
     }
@@ -194,7 +244,7 @@ export const createFolderMenuItems = (
     if (onToggleFavorite) {
         items.splice(onDelete ? items.length - 1 : items.length, 0, {
             label: isFavorite ? t('files.ui.actions.unfavorite') : t('files.ui.actions.favorite'),
-            icon: <Star className={`h-4 w-4 ${isFavorite ? 'fill-current' : ''}`} />,
+            icon: <Star className="h-4 w-4" weight={isFavorite ? 'fill' : 'regular'} />,
             onClick: onToggleFavorite,
         });
     }

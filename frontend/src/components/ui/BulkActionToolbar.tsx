@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Trash2, X, CheckSquare, Share2, Copy, Calendar, Lock, Check } from "lucide-react";
+import { Trash2, X, CheckSquare, Share2, Copy, Calendar, Lock, Check, FolderInput } from "./icons";
 import { Button } from "./Button";
 import { errorMessage } from "../../services/unknownError";
 import { DatePicker } from "./DatePicker";
@@ -14,6 +13,7 @@ interface BulkActionToolbarProps {
     selectedFoldersCount: number;
     selectedFileId?: string;
     onDelete: () => void;
+    onMove?: () => void;
     onCancel: () => void;
     onShare: (password: string, expiration: string) => Promise<string | null>;
     shareCapabilities?: StorageCapabilities;
@@ -26,6 +26,7 @@ export const BulkActionToolbar = ({
     selectedFoldersCount,
     selectedFileId,
     onDelete,
+    onMove,
     onCancel,
     onShare,
     shareCapabilities,
@@ -49,7 +50,7 @@ export const BulkActionToolbar = ({
         setCopySuccess(false);
         setErrorMsg(null);
         setShowShareSettings(false);
-    }, [selectedFileId]);
+    }, [selectedFileId, selectedFilesCount, selectedFoldersCount]);
 
     // Share is currently only available for exactly one file (not folders).
     const canShare = selectedFilesCount === 1 && selectedFoldersCount === 0 && shareCapabilities?.share === true;
@@ -148,207 +149,54 @@ export const BulkActionToolbar = ({
         }
     };
 
+    if (!isVisible) return null;
+
     return (
-        <AnimatePresence>
-            {isVisible && (
-                <div className="w-full">
-                    <motion.div
-                        initial={{ height: 0, opacity: 0, y: -20 }}
-                        animate={{ height: "auto", opacity: 1, y: 0 }}
-                        exit={{ height: 0, opacity: 0, y: -20 }}
-                        transition={{ duration: 0.3, ease: "easeInOut" }}
-                        className="z-40 w-full"
-                    >
-                        <div className="bg-white dark:bg-zinc-900 border border-primary/20 shadow-lg rounded-2xl p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <div className="flex items-center gap-3 pl-1">
-                                <div className="bg-primary/10 p-1.5 rounded-lg">
-                                    <CheckSquare className="h-4 w-4 text-primary" />
-                                </div>
-                                <div className="flex flex-col">
-                                    <span className="text-xs font-semibold">
-                                        {t('files.ui.share.selected', { count: selectedFilesCount + selectedFoldersCount })}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground uppercase font-medium">
-                                        {t('files.ui.share.selectionBreakdown', { folders: selectedFoldersCount, files: selectedFilesCount })}
-                                    </span>
-                                </div>
-                            </div>
+        <section className="tv-bulk-toolbar" aria-label={t('files.ui.share.selected', { count: selectedFilesCount + selectedFoldersCount })}>
+            <div className="tv-bulk-summary-row">
+                <div className="tv-bulk-summary">
+                    <CheckSquare aria-hidden="true" />
+                    <div><strong>{t('files.ui.share.selected', { count: selectedFilesCount + selectedFoldersCount })}</strong><span>{t('files.ui.share.selectionBreakdown', { folders: selectedFoldersCount, files: selectedFilesCount })}</span></div>
+                </div>
+                <div className="tv-bulk-actions">
+                    {onMove && <Button variant="outline" size="sm" onClick={onMove} disabled={selectedFilesCount + selectedFoldersCount !== 1} title={t('files.moveSingleOnly')}><FolderInput aria-hidden="true" />{t('files.ui.actions.move')}</Button>}
+                    <Button variant={showShareSettings ? 'secondary' : 'outline'} size="sm" onClick={handleShareClick} disabled={!canShare} title={shareUnavailableReason} aria-expanded={showShareSettings}>
+                        <Share2 aria-hidden="true" />{t('files.ui.share.action')}
+                    </Button>
+                    {canDelete && <Button variant="destructive" size="sm" onClick={onDelete} disabled={selectedFilesCount + selectedFoldersCount === 0}><Trash2 aria-hidden="true" />{t('common.actions.delete')}</Button>}
+                    <Button variant="ghost" size="sm" onClick={() => { setShowShareSettings(false); onCancel(); }}><X aria-hidden="true" />{t('common.actions.cancel')}</Button>
+                </div>
+            </div>
 
-                            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-11 px-4 text-sm flex items-center gap-1.5 hover:bg-muted touch-manipulation"
-                                    onClick={() => {
-                                        setShowShareSettings(false);
-                                        onCancel();
-                                    }}
-                                >
-                                    <X className="h-3.5 w-3.5" />
-                                    <span>{t('common.actions.cancel')}</span>
+            {showShareSettings && canShare && (
+                <div className="tv-bulk-share-panel">
+                    {!generatedLink ? (
+                        <div className="tv-bulk-share-fields">
+                            {shareCapabilities?.shareExpiration && <div className="tv-bulk-date-field">
+                                <Button type="button" variant="outline" className="tv-bulk-date-trigger" onClick={() => setShowDatePicker(!showDatePicker)} aria-expanded={showDatePicker}>
+                                    <Calendar aria-hidden="true" /><span>{expiration || t('files.ui.share.expirationPlaceholder')}</span>
                                 </Button>
-
-                                <Button
-                                    variant={showShareSettings ? "secondary" : "ghost"}
-                                    size="sm"
-                                    className="h-11 px-4 text-sm flex items-center gap-1.5 hover:bg-primary/10 text-blue-600 hover:text-blue-700 touch-manipulation"
-                                    onClick={handleShareClick}
-                                    disabled={!canShare}
-                                    title={shareUnavailableReason}
-                                >
-                                    <Share2 className="h-3.5 w-3.5" />
-                                    <span>{t('files.ui.share.action')}</span>
-                                </Button>
-
-                                {canDelete && <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    className="h-11 px-4 text-sm flex items-center gap-1.5 shadow-md shadow-red-500/10 touch-manipulation"
-                                    onClick={onDelete}
-                                    disabled={selectedFilesCount + selectedFoldersCount === 0}
-                                >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                    <span>{t('common.actions.delete')}</span>
-                                </Button>}
-                            </div>
+                                {showDatePicker && <div className="tv-bulk-date-popover"><DatePicker selectedDate={selectedExpDate} onChange={handleDateSelect} onClose={() => setShowDatePicker(false)} /></div>}
+                            </div>}
+                            {shareCapabilities?.sharePassword && <label className="tv-bulk-password-field">
+                                <Lock aria-hidden="true" />
+                                <input type="text" value={password} onChange={event => setPassword(event.target.value)} placeholder={t('files.ui.share.passwordPlaceholder')} aria-label={t('files.ui.share.passwordPlaceholder')} />
+                            </label>}
+                            <Button size="sm" onClick={() => void handleCopyLink()} disabled={isCopying}>
+                                {isCopying ? <><IndeterminateSpinner label={t('files.ui.share.generatingLabel')} size="sm" tone="current" />{t('files.ui.share.generating')}</> : <><Copy aria-hidden="true" />{t('files.ui.share.generate')}</>}
+                            </Button>
                         </div>
-
-                        {/* Share Settings Panel */}
-                        <AnimatePresence>
-                            {showShareSettings && (
-                                <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: "auto", opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    className="mt-2"
-                                >
-                                    <div className="bg-white dark:bg-zinc-900 border border-border shadow-xl rounded-xl p-4 flex flex-col gap-4">
-
-                                        {!generatedLink ? (
-                                            <div className="flex items-start md:items-center flex-col md:flex-row gap-4">
-                                                {/* Expiration Input */}
-                                                {shareCapabilities?.shareExpiration && <div className="flex-1 w-full relative group">
-                                                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
-                                                        <Calendar className="h-4 w-4" />
-                                                    </div>
-                                                    <div className="relative">
-                                                        <input
-                                                            type="text"
-                                                            value={expiration}
-                                                            readOnly
-                                                            onClick={() => setShowDatePicker(!showDatePicker)}
-                                                            placeholder={t('files.ui.share.expirationPlaceholder')}
-                                                            className="w-full h-9 pl-9 pr-3 rounded-lg border border-border bg-background/50 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all hover:bg-background cursor-pointer"
-                                                        />
-                                                        <AnimatePresence>
-                                                            {showDatePicker && (
-                                                                <div className="absolute top-full mt-2 left-0 z-[60]">
-                                                                    <DatePicker
-                                                                        selectedDate={selectedExpDate}
-                                                                        onChange={handleDateSelect}
-                                                                        onClose={() => setShowDatePicker(false)}
-                                                                    />
-                                                                </div>
-                                                            )}
-                                                        </AnimatePresence>
-                                                    </div>
-                                                </div>}
-
-                                                {/* Password Input */}
-                                                {shareCapabilities?.sharePassword && <div className="flex-1 w-full relative group">
-                                                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
-                                                        <Lock className="h-4 w-4" />
-                                                    </div>
-                                                    <input
-                                                        type="text"
-                                                        value={password}
-                                                        onChange={(e) => setPassword(e.target.value)}
-                                                        placeholder={t('files.ui.share.passwordPlaceholder')}
-                                                        className="w-full h-9 pl-9 pr-3 rounded-lg border border-border bg-background/50 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all hover:bg-background"
-                                                    />
-                                                </div>}
-
-                                                {/* Copy/Generate Button */}
-                                                <Button
-                                                    size="sm"
-                                                    className={`h-9 min-w-[100px] shrink-0 font-medium transition-all ${copySuccess ? 'bg-green-500 hover:bg-green-600 text-white' : ''}`}
-                                                    onClick={handleCopyLink}
-                                                    disabled={isCopying}
-                                                >
-                                                    {isCopying ? (
-                                                        <span className="flex items-center gap-2">
-                                                            <IndeterminateSpinner label={t('files.ui.share.generatingLabel')} size="sm" tone="current" />
-                                                            {t('files.ui.share.generating')}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="flex items-center gap-2">
-                                                            <Copy className="h-4 w-4" />
-                                                            {t('files.ui.share.generate')}
-                                                        </span>
-                                                    )}
-                                                </Button>
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col gap-3">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex-1 relative group">
-                                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors text-primary">
-                                                            <Share2 className="h-4 w-4" />
-                                                        </div>
-                                                        <input
-                                                            type="text"
-                                                            value={generatedLink}
-                                                            readOnly
-                                                            className="w-full h-9 pl-9 pr-3 rounded-lg border border-primary/30 bg-primary/5 text-sm text-primary font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 hover:bg-primary/10 select-all"
-                                                        />
-                                                    </div>
-                                                    <Button
-                                                        size="sm"
-                                                        className={`h-9 min-w-[100px] shrink-0 font-medium transition-all ${copySuccess ? 'bg-green-500 hover:bg-green-600 text-white' : ''}`}
-                                                        onClick={handleCopyLink}
-                                                    >
-                                                        {copySuccess ? (
-                                                            <span className="flex items-center gap-2">
-                                                                <Check className="h-4 w-4" />
-                                                                {t('files.ui.share.copied')}
-                                                            </span>
-                                                        ) : (
-                                                            <span className="flex items-center gap-2">
-                                                                <Copy className="h-4 w-4" />
-                                                                {t('files.ui.share.copy')}
-                                                            </span>
-                                                        )}
-                                                    </Button>
-                                                </div>
-                                                <div className="text-[10px] text-green-600 dark:text-green-400 px-1 font-medium">
-                                                    {t('files.ui.share.ready')}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Error Message */}
-                                        {errorMsg && (
-                                            <motion.div
-                                                initial={{ opacity: 0, height: 0 }}
-                                                animate={{ opacity: 1, height: "auto" }}
-                                                className="text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded-lg"
-                                            >
-                                                {errorMsg}
-                                            </motion.div>
-                                        )}
-
-                                        {!generatedLink && (
-                                            <div className="text-[10px] text-muted-foreground/60 px-1">
-                                                {t('files.ui.share.providerHint')}
-                                            </div>
-                                        )}
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </motion.div>
+                    ) : (
+                        <div className="tv-bulk-link-result">
+                            <div className="tv-bulk-link-field"><Share2 aria-hidden="true" /><input type="text" value={generatedLink} readOnly aria-label={t('files.ui.share.ready')} onFocus={event => event.target.select()} /></div>
+                            <Button size="sm" onClick={() => void handleCopyLink()}>{copySuccess ? <><Check aria-hidden="true" />{t('files.ui.share.copied')}</> : <><Copy aria-hidden="true" />{t('files.ui.share.copy')}</>}</Button>
+                            <p className="tv-bulk-success" role="status">{t('files.ui.share.ready')}</p>
+                        </div>
+                    )}
+                    {errorMsg && <p className="tv-file-error" role="alert">{errorMsg}</p>}
+                    {!generatedLink && <p className="tv-bulk-hint">{t('files.ui.share.providerHint')}</p>}
                 </div>
             )}
-        </AnimatePresence>
+        </section>
     );
 };

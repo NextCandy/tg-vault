@@ -14,9 +14,10 @@ import subscriptionsRouter from './routes/subscriptions.js';
 import authRouter, { requireAuth } from './routes/auth.js';
 import { createSystemRouter } from './routes/system.js';
 import { requireAuthOrSignedUrl } from './middleware/signedUrl.js';
-import { initTelegramBot, scheduleTelegramBotPostStartup, sendUpdateNotificationToUser } from './services/telegramBot.js';
+import { initTelegramBot, sendUpdateNotificationToUser } from './services/telegramBot.js';
 import { applyEffectiveTelegramBotConfig } from './services/telegramBotConfig.js';
 import { classifyTelegramBotStartupError, getTelegramBotStatus, markTelegramBotError, resetTelegramBotStatus, telegramBotBlocksReadiness } from './services/telegramBotStatus.js';
+import { createInitialTelegramRecovery } from './services/telegramInitialRecovery.js';
 import { isTelegramUserClientReady, restoreEnabledTelegramUserAccountsAfterRestart } from './services/telegramUserClient.js';
 import { installTelegramMultiAccountRuntimeAdapters } from './services/telegramMultiAccountRuntime.js';
 import { isInitialSetupRequired } from './utils/authSettings.js';
@@ -236,31 +237,35 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 let server: ReturnType<typeof app.listen> | null = null;
 
+const recoverInitialUsers = createInitialTelegramRecovery(restoreEnabledTelegramUserAccountsAfterRestart);
+
 async function startTelegramRuntime(telegramConfig: Awaited<ReturnType<typeof applyEffectiveTelegramBotConfig>>): Promise<void> {
+    // Schedule once, even on required/optional Bot failure; never shorten the
+    // safety window because a Bot authorization failed quickly.
+    const configuredDelay = Number(process.env.TELEGRAM_BOT_USER_ISOLATION_MS);
+    const isolationMs = Number.isFinite(configuredDelay) && configuredDelay >= 60_000 ? Math.min(configuredDelay, 600_000) : 120_000;
     if (!telegramConfig.configured || !telegramConfig.enabled) {
         resetTelegramBotStatus(false);
-        await restoreEnabledTelegramUserAccountsAfterRestart();
+        void recoverInitialUsers(0).catch(error => console.error('Initial Telegram user recovery failed:', error));
         return;
     }
     try {
         await initTelegramBot();
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const status = classifyTelegramBotStartupError(error);
-        markTelegramBotError(
-            status,
-            message,
-            status === 'auth_failed' ? 'Telegram Bot Token 已失效，请在网页端更换凭证' : '检查网络与后端日志后重试',
-        );
+        // The serialized supervisor owns runtime status; never overwrite a
+        // newer manual/config attempt from this out-of-lock boot catch.
         if (telegramConfig.required) {
             console.error('Telegram Bot 是必需组件，readiness 保持未就绪:', message);
             return;
         }
         console.warn('Telegram Bot 可选组件启动失败，应用以 degraded 状态继续:', message);
-        await restoreEnabledTelegramUserAccountsAfterRestart();
         return;
+    } finally {
+        // Count the isolation window after initial authorization has settled,
+        // including failure. Manual/retry readiness never invokes this callback.
+        void recoverInitialUsers(isolationMs).catch(error => console.error('Initial Telegram user recovery failed:', error));
     }
-    scheduleTelegramBotPostStartup(restoreEnabledTelegramUserAccountsAfterRestart);
 }
 
 async function initializeApplication(): Promise<void> {

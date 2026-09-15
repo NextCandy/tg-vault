@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from './icons';
 import { useTranslation } from 'react-i18next';
 
 interface DatePickerProps {
@@ -65,7 +65,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
 
         // Fill empty days for previous month
         for (let i = 0; i < startDay; i++) {
-            days.push(<div key={`empty-${i}`} className="h-9 w-9" />);
+            days.push(<div key={`empty-${i}`} className="h-9 w-full" />);
         }
 
         // Fill actual days
@@ -90,8 +90,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                     key={day}
                     onClick={() => !isPast && handleDateClick(day)}
                     disabled={isPast}
-                    className={`h-9 w-9 flex items-center justify-center rounded-full text-sm transition-all
-                        ${isSelected ? 'bg-primary text-primary-foreground font-bold scale-110 shadow-lg shadow-primary/20' :
+                    className={`h-9 w-full flex items-center justify-center rounded-md text-sm transition-colors
+                        ${isSelected ? 'bg-primary text-primary-foreground font-semibold' :
                             isToday ? 'border border-primary/50 text-primary font-medium' :
                                 isPast ? 'text-muted-foreground/30 cursor-not-allowed' :
                                     'hover:bg-muted text-foreground'}`}
@@ -113,13 +113,13 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             initial={{ opacity: 0, scale: 0.95, y: -10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
-            className="absolute z-50 mt-2 w-[320px] rounded-2xl border border-border bg-popover p-4 text-popover-foreground shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
+            className="absolute z-[80] mt-2 w-[300px] max-w-[calc(100vw-48px)] rounded-[10px] border border-border bg-popover p-3 text-popover-foreground shadow-lg"
         >
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
                 <button
                     onClick={() => setShowYearPicker(!showYearPicker)}
-                    className="flex items-center gap-1.5 font-semibold text-lg hover:bg-muted py-0.5 px-2 rounded-lg transition-colors group"
+                    className="flex items-center gap-1.5 font-semibold text-sm hover:bg-muted py-0.5 px-2 rounded-lg transition-colors group"
                 >
                     <span>{new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language, { month: 'long', year: 'numeric' }).format(viewDate)}</span>
                     <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${showYearPicker ? 'rotate-90' : ''}`} />
@@ -127,15 +127,15 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                 <div className="flex items-center gap-1">
                     {!showYearPicker && (
                         <>
-                            <button onClick={handlePrevMonth} aria-label={t('files.ui.datePicker.previousMonth')} title={t('files.ui.datePicker.previousMonth')} className="p-1.5 hover:bg-muted dark:hover:bg-zinc-800 rounded-lg transition-colors">
+                            <button onClick={handlePrevMonth} aria-label={t('files.ui.datePicker.previousMonth')} title={t('files.ui.datePicker.previousMonth')} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
                                 <ChevronLeft className="h-4 w-4" />
                             </button>
-                            <button onClick={handleNextMonth} aria-label={t('files.ui.datePicker.nextMonth')} title={t('files.ui.datePicker.nextMonth')} className="p-1.5 hover:bg-muted dark:hover:bg-zinc-800 rounded-lg transition-colors">
+                            <button onClick={handleNextMonth} aria-label={t('files.ui.datePicker.nextMonth')} title={t('files.ui.datePicker.nextMonth')} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
                                 <ChevronRight className="h-4 w-4" />
                             </button>
                         </>
                     )}
-                    <button onClick={onClose} aria-label={t('files.ui.datePicker.close')} title={t('files.ui.datePicker.close')} className="p-1.5 hover:bg-muted dark:hover:bg-zinc-800 rounded-lg transition-colors ml-1">
+                    <button onClick={onClose} aria-label={t('files.ui.datePicker.close')} title={t('files.ui.datePicker.close')} className="p-1.5 hover:bg-muted rounded-lg transition-colors ml-1">
                         <X className="h-4 w-4" />
                     </button>
                 </div>
@@ -165,7 +165,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                     {/* Weekdays */}
                     <div className="grid grid-cols-7 mb-2">
                         {weekDays.map(day => (
-                            <div key={day} className="h-9 w-9 flex items-center justify-center text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                            <div key={day} className="h-9 w-full flex items-center justify-center text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                                 {day}
                             </div>
                         ))}

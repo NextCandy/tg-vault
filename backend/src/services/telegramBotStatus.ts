@@ -7,6 +7,17 @@ export type TelegramBotState =
     | 'error'
     | 'stopped';
 
+export interface TelegramBotRuntime {
+    connected: boolean;
+    busy: boolean;
+    cleanupBlocked: boolean;
+    attempt: number;
+    nextRetryAt: string | null;
+    retryAllowedAt: string | null;
+}
+let runtimeProbe: (() => TelegramBotRuntime) | null = null;
+export function setTelegramBotRuntimeProbe(probe: () => TelegramBotRuntime): void { runtimeProbe = probe; }
+
 export interface TelegramBotStatus {
     status: TelegramBotState;
     configured: boolean;
@@ -18,6 +29,12 @@ export interface TelegramBotStatus {
     lastError: string | null;
     action: string | null;
     reconnectCount: number;
+    connected?: boolean;
+    busy?: boolean;
+    cleanupBlocked?: boolean;
+    attempt?: number;
+    nextRetryAt?: string | null;
+    retryAllowedAt?: string | null;
 }
 
 let requiredOverride: boolean | null = null;
@@ -61,7 +78,10 @@ export function resetTelegramBotStatus(configured: boolean, checkedAt = new Date
 }
 
 export function getTelegramBotStatus(): TelegramBotStatus {
-    return { ...current, required: requiredFromEnv() };
+    const runtime = runtimeProbe?.();
+    const status = runtime && ((current.status === 'ready' && !runtime.connected) || runtime.nextRetryAt)
+        ? 'reconnecting' : current.status;
+    return { ...current, ...runtime, status, degraded: current.degraded || status === 'reconnecting', checkedAt: new Date().toISOString(), required: requiredFromEnv() };
 }
 
 export function markTelegramBotStarting(checkedAt = new Date().toISOString()): void {
